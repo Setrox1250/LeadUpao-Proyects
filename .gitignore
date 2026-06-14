@@ -1,0 +1,26 @@
+# Dependencies
+**/node_modules/
+
+# Next.js build output
+**/.next/
+**/out/
+**/tsconfig.tsbuildinfo
+
+# Environment and secrets
+**/*.env
+**/*.env.local
+**/*.env.development.local
+**/*.env.test.local
+**/*.env.production.local
+**/.env.*
+
+# Local IDE / cache directories
+**/.claude/
+**/.gemini/
+**/.vscode/
+**/.idea/
+**/.DS_Store
+**/*.tmp
+**/*.tmp.*
+**/*.temp
+**/*.temp.*
