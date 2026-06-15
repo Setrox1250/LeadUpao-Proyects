@@ -239,6 +239,89 @@ async function handleTareaDelete(client, payload) {
 // Suscripción Realtime — escucha todos los eventos ('*') de la tabla 'tareas'
 // ──────────────────────────────────────────────────────────────────────────────
 
+// ──────────────────────────────────────────────────────────────────────────────
+// Handlers: Sincronización de Roles y Pilares
+// ──────────────────────────────────────────────────────────────────────────────
+
+async function handleRolePilarInsert(client, payload, table) {
+    const record = payload.new;
+    const guildId = process.env.GUILD_ID;
+    if (!guildId) return console.error('[SupabaseListener] GUILD_ID no definido en .env');
+
+    try {
+        const guild = await client.guilds.fetch(guildId);
+        // Crear rol en Discord
+        const newRole = await guild.roles.create({
+            name: record.nombre,
+            reason: `Sincronización automática desde Supabase tabla ${table}`
+        });
+
+        // Guardar el discord_role_id en Supabase
+        const { error } = await supabase
+            .from(table)
+            .update({ discord_role_id: newRole.id })
+            .eq('nombre', record.nombre); // La clave primaria es 'nombre'
+
+        if (error) {
+            console.error(`[SupabaseListener] Error al actualizar discord_role_id en ${table}:`, error.message);
+        } else {
+            console.log(`[SupabaseListener] Rol creado en Discord y sincronizado en ${table}: ${record.nombre}`);
+        }
+    } catch (err) {
+        console.error(`[SupabaseListener] Error al crear rol para ${table} (${record.nombre}):`, err);
+    }
+}
+
+async function handleRolePilarUpdate(client, payload, table) {
+    const newRecord = payload.new;
+    const oldRecord = payload.old;
+    
+    // Solo actuar si el nombre cambió y tenemos un discord_role_id
+    if (newRecord.nombre === oldRecord.nombre || !newRecord.discord_role_id) return;
+
+    const guildId = process.env.GUILD_ID;
+    if (!guildId) return;
+
+    try {
+        const guild = await client.guilds.fetch(guildId);
+        const role = await guild.roles.fetch(newRecord.discord_role_id);
+        
+        if (role) {
+            await role.edit({
+                name: newRecord.nombre,
+                reason: `Nombre actualizado desde Supabase tabla ${table}`
+            });
+            console.log(`[SupabaseListener] Rol editado en Discord: ${oldRecord.nombre} -> ${newRecord.nombre}`);
+        } else {
+            console.warn(`[SupabaseListener] Rol con ID ${newRecord.discord_role_id} no encontrado en Discord para editar.`);
+        }
+    } catch (err) {
+        console.error(`[SupabaseListener] Error al editar rol para ${table} (${newRecord.nombre}):`, err);
+    }
+}
+
+async function handleRolePilarDelete(client, payload, table) {
+    const oldRecord = payload.old;
+    if (!oldRecord.discord_role_id) return;
+
+    const guildId = process.env.GUILD_ID;
+    if (!guildId) return;
+
+    try {
+        const guild = await client.guilds.fetch(guildId);
+        const role = await guild.roles.fetch(oldRecord.discord_role_id);
+        
+        if (role) {
+            await role.delete(`Eliminado desde Supabase tabla ${table}`);
+            console.log(`[SupabaseListener] Rol eliminado en Discord: ID ${oldRecord.discord_role_id}`);
+        } else {
+            console.warn(`[SupabaseListener] Rol con ID ${oldRecord.discord_role_id} no encontrado en Discord para eliminar.`);
+        }
+    } catch (err) {
+        console.error(`[SupabaseListener] Error al eliminar rol para ${table} (ID ${oldRecord.discord_role_id}):`, err);
+    }
+}
+
 /**
  * Inicia la escucha de cambios en tiempo real de la tabla 'tareas'.
  * Debe llamarse UNA SOLA VEZ, cuando el bot esté listo (evento ClientReady).
@@ -253,22 +336,42 @@ function startSupabaseListener(client) {
             { event: '*', schema: 'public', table: 'tareas' },
             async (payload) => {
                 const tipo = payload.eventType;
-                console.log(
-                    `[SupabaseListener] Evento ${tipo} recibido → tarea ID=${
-                        (payload.new ?? payload.old)?.id
-                    }`
-                );
+                console.log(`[SupabaseListener] Evento ${tipo} recibido → tarea ID=${(payload.new ?? payload.old)?.id}`);
 
                 try {
-                    if (tipo === 'INSERT') {
-                        await handleTareaInsert(client, payload);
-                    } else if (tipo === 'UPDATE') {
-                        await handleTareaUpdate(client, payload);
-                    } else if (tipo === 'DELETE') {
-                        await handleTareaDelete(client, payload);
-                    }
+                    if (tipo === 'INSERT') await handleTareaInsert(client, payload);
+                    else if (tipo === 'UPDATE') await handleTareaUpdate(client, payload);
+                    else if (tipo === 'DELETE') await handleTareaDelete(client, payload);
                 } catch (err) {
                     console.error(`[SupabaseListener] Error no controlado en evento ${tipo}:`, err);
+                }
+            }
+        )
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'roles' },
+            async (payload) => {
+                const tipo = payload.eventType;
+                try {
+                    if (tipo === 'INSERT') await handleRolePilarInsert(client, payload, 'roles');
+                    else if (tipo === 'UPDATE') await handleRolePilarUpdate(client, payload, 'roles');
+                    else if (tipo === 'DELETE') await handleRolePilarDelete(client, payload, 'roles');
+                } catch (err) {
+                    console.error(`[SupabaseListener] Error en evento ${tipo} de roles:`, err);
+                }
+            }
+        )
+        .on(
+            'postgres_changes',
+            { event: '*', schema: 'public', table: 'pilares' },
+            async (payload) => {
+                const tipo = payload.eventType;
+                try {
+                    if (tipo === 'INSERT') await handleRolePilarInsert(client, payload, 'pilares');
+                    else if (tipo === 'UPDATE') await handleRolePilarUpdate(client, payload, 'pilares');
+                    else if (tipo === 'DELETE') await handleRolePilarDelete(client, payload, 'pilares');
+                } catch (err) {
+                    console.error(`[SupabaseListener] Error en evento ${tipo} de pilares:`, err);
                 }
             }
         )

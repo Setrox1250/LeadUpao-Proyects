@@ -1,199 +1,157 @@
 'use client'
 
 import { useState } from 'react'
-import { createClient } from '@/lib/supabase/client'
-import type { Miembro } from '@/types'
+import { crearMiembro } from '@/lib/actions/miembros'
+import Modal from '@/components/ui/Modal'
+import { FormInput, FormSelect, FormActions, SuccessScreen } from '@/components/ui/FormField'
+import { useToast } from '@/components/ui/Toast'
+import type { Miembro, Rol, Pilar } from '@/types'
 
 type Props = {
+  roles:     Rol[]
+  pilares:   Pilar[]
   onClose:   () => void
   onSuccess: (newMember: Miembro) => void
 }
 
-export default function AddMemberModal({ onClose, onSuccess }: Props) {
+export default function AddMemberModal({ roles, pilares, onClose, onSuccess }: Props) {
+  const { showToast } = useToast()
   const [form, setForm] = useState({
     nombre_completo:      '',
     correo_institucional: '',
-    discord_id:           '',
-    rol:                  'Miembro',
-    pilar:                'Innovación Tecnológica',
+    cargo:                roles.find(r => r.nombre === 'Member')?.nombre ?? roles[0]?.nombre ?? '',
+    pilar:                pilares[0]?.nombre ?? '',
+    contrasena:           '',
   })
   const [loading, setLoading] = useState(false)
-  const [error, setError]     = useState<string | null>(null)
+  const [codigoCreado, setCodigoCreado] = useState<string | null>(null)
+  const [contrasenaCreada, setContrasenaCreada] = useState<string | null>(null)
 
-  const supabase = createClient()
+  const cargoActual   = roles.find(r => r.nombre === form.cargo)
+  const requierePilar = cargoActual?.requiere_pilar ?? false
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setForm(prev => ({ ...prev, [e.target.name]: e.target.value }))
-    setError(null)
+    const { name, value } = e.target
+    setForm(prev => {
+      const next = { ...prev, [name]: value }
+      if (name === 'cargo') {
+        const nuevoCargo = roles.find(r => r.nombre === value)
+        next.pilar = nuevoCargo?.requiere_pilar ? (prev.pilar || (pilares[0]?.nombre ?? '')) : ''
+      }
+      return next
+    })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setLoading(true)
-    setError(null)
 
     try {
-      const emailLower = form.correo_institucional.trim().toLowerCase()
+      const formData = new FormData()
+      formData.set('nombre_completo', form.nombre_completo.trim())
+      formData.set('correo_institucional', form.correo_institucional.trim().toLowerCase())
+      formData.set('cargo', form.cargo)
+      formData.set('pilar', form.pilar)
+      formData.set('contrasena', form.contrasena)
 
-      // Validación simple de correo institucional
-      if (!emailLower.endsWith('@upao.edu.pe')) {
-        throw new Error('Debes registrar un correo institucional de la UPAO (@upao.edu.pe).')
-      }
+      const { data, error: err } = await crearMiembro(formData)
 
-      const { data, error: err } = await supabase
-        .from('miembros')
-        .insert({
-          nombre_completo:      form.nombre_completo.trim(),
-          correo_institucional: emailLower,
-          discord_id:           form.discord_id.trim(),
-          rol:                  form.rol,
-          pilar:                form.pilar,
-          estado:               'PENDIENTE',
-        })
-        .select('*')
-        .single()
-
-      if (err) {
-        throw err.code === '23505'
-          ? new Error('El correo institucional o el Discord ID ya está registrado.')
-          : err
+      if (err || !data) {
+        throw new Error(err ?? 'Error al crear el miembro.')
       }
 
       const mappedMember: Miembro = {
         ...(data as any),
-        rol_lead: data.rol === 'President' || data.rol === 'Vice-President' ? data.rol : data.pilar
+        rol_lead: data.pilar || data.cargo,
       }
 
       onSuccess(mappedMember)
-      onClose()
+      showToast('success', 'Miembro agregado correctamente.')
+      setCodigoCreado(data.codigo_verificacion)
+      setContrasenaCreada(form.contrasena)
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Error al crear el miembro.')
+      showToast('error', err instanceof Error ? err.message : 'Error al crear el miembro.')
     } finally {
       setLoading(false)
     }
   }
 
+  if (codigoCreado) {
+    return (
+      <Modal onClose={onClose} title="Agregar Miembro">
+        <SuccessScreen onClose={onClose}>
+          <p className="text-sm text-gray-600">
+            Miembro agregado. Compártele este código de verificación para que vincule su cuenta
+            de Discord con el comando <span className="font-mono font-semibold">/verificar</span> o
+            para que inicie sesión en la web con su código y contraseña.
+          </p>
+          <div className="bg-gray-50 border border-gray-200 rounded-xl py-4">
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Código de verificación</p>
+            <span className="text-2xl font-mono font-bold tracking-[0.3em] text-lead-navy">
+              {codigoCreado}
+            </span>
+          </div>
+          <div className="bg-gray-50 border border-gray-200 rounded-xl py-4">
+            <p className="text-[10px] uppercase tracking-widest text-gray-400 mb-1">Contraseña</p>
+            <span className="text-2xl font-mono font-bold tracking-[0.3em] text-lead-navy">
+              {contrasenaCreada}
+            </span>
+          </div>
+        </SuccessScreen>
+      </Modal>
+    )
+  }
+
   return (
-    /* Overlay */
-    <div
-      className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4"
-      onClick={e => e.target === e.currentTarget && onClose()}
-    >
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
-        <div className="flex items-center justify-between mb-6">
-          <h3 className="text-lg font-bold text-gray-900">Agregar Miembro</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
+    <Modal onClose={onClose} title="Agregar Miembro" size="md">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <FormInput
+          label="Nombre Completo"
+          type="text"
+          name="nombre_completo"
+          value={form.nombre_completo}
+          onChange={handleChange}
+          required
+          placeholder="Ej: Luis Rodríguez"
+        />
+
+        <FormInput
+          label="Correo"
+          type="email"
+          name="correo_institucional"
+          value={form.correo_institucional}
+          onChange={handleChange}
+          required
+          placeholder="nombre@correo.com"
+        />
+
+        <FormInput
+          label="Contraseña inicial"
+          type="text"
+          name="contrasena"
+          value={form.contrasena}
+          onChange={handleChange}
+          required
+          minLength={8}
+          placeholder="Mínimo 8 caracteres, con letra y número"
+          className="font-mono"
+          hint="El miembro podrá cambiarla luego desde su panel."
+        />
+
+        <div className={`grid gap-4 ${requierePilar ? 'grid-cols-2' : 'grid-cols-1'}`}>
+          <FormSelect label="Cargo" name="cargo" value={form.cargo} onChange={handleChange} required>
+            {roles.map(r => <option key={r.id} value={r.nombre}>{r.nombre}</option>)}
+          </FormSelect>
+
+          {requierePilar && (
+            <FormSelect label="Pilar" name="pilar" value={form.pilar} onChange={handleChange} required>
+              {pilares.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
+            </FormSelect>
+          )}
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Nombre Completo</label>
-            <input
-              type="text"
-              name="nombre_completo"
-              value={form.nombre_completo}
-              onChange={handleChange}
-              required
-              placeholder="Ej: Luis Rodríguez"
-              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-lead-blue focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Correo Institucional</label>
-            <input
-              type="email"
-              name="correo_institucional"
-              value={form.correo_institucional}
-              onChange={handleChange}
-              required
-              placeholder="nombre@upao.edu.pe"
-              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-lead-blue focus:border-transparent"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Discord ID (Numérico)</label>
-            <input
-              type="text"
-              name="discord_id"
-              value={form.discord_id}
-              onChange={handleChange}
-              required
-              placeholder="Ej: 349182390231920"
-              className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-lead-blue focus:border-transparent"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Rol / Cargo</label>
-              <select
-                name="rol"
-                value={form.rol}
-                onChange={handleChange}
-                required
-                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-lead-blue focus:border-transparent bg-white"
-              >
-                <option value="Miembro">Miembro (Integrante)</option>
-                <option value="Leader">Leader (Líder de Área)</option>
-                <option value="Chief of Staff">Chief of Staff</option>
-                <option value="Treasure / Fundraising">Treasure / Fundraising</option>
-                <option value="Vice-President">Vice-President</option>
-                <option value="President">President</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Pilar Oficial</label>
-              <select
-                name="pilar"
-                value={form.pilar}
-                onChange={handleChange}
-                required
-                className="w-full border border-gray-300 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-lead-blue focus:border-transparent bg-white"
-              >
-                <option value="Innovación Tecnológica">Innovación Tecnológica</option>
-                <option value="Desarrollo del Capítulo">Desarrollo del Capítulo</option>
-                <option value="Excelencia Académica">Excelencia Académica</option>
-                <option value="Liderazgo">Liderazgo</option>
-                <option value="Desarrollo Profesional">Desarrollo Profesional</option>
-                <option value="Impacto Comunitario">Impacto Comunitario</option>
-                <option value="Excelencia Femenina">Excelencia Femenina</option>
-                <option value="LEAD Academia">LEAD Academia</option>
-                <option value="Dirección">Dirección</option>
-              </select>
-            </div>
-          </div>
-
-          {error && (
-            <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm">
-              {error}
-            </div>
-          )}
-
-          <div className="flex gap-3 pt-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="flex-1 border border-gray-300 text-gray-700 font-medium py-2.5 rounded-xl hover:bg-gray-50 transition-colors text-sm"
-            >
-              Cancelar
-            </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="flex-1 bg-lead-navy hover:bg-lead-blue disabled:opacity-60 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
-            >
-              {loading ? 'Guardando...' : 'Agregar miembro'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        <FormActions onCancel={onClose} loading={loading} submitLabel="Agregar miembro" loadingLabel="Guardando..." />
+      </form>
+    </Modal>
   )
 }

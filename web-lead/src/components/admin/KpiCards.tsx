@@ -44,7 +44,11 @@ export default function KpiCards({ totalMiembros, verificados, tareasActivas, is
           sub={`${verificados} de ${totalMiembros} miembros verificados`}
           color="bg-purple-50 border-purple-100"
           iconBg="bg-purple-100"
-          icon="🎮"
+          icon={
+            <svg className="w-6 h-6 text-purple-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a4 4 0 00-3-3.87M9 20H4v-2a4 4 0 013-3.87m9-3.13a4 4 0 10-8 0 4 4 0 008 0zm6 0a4 4 0 11-8 0 4 4 0 018 0z" />
+            </svg>
+          }
         />
       )}
 
@@ -55,7 +59,11 @@ export default function KpiCards({ totalMiembros, verificados, tareasActivas, is
         sub="Tareas con estado EN_PROGRESO"
         color="bg-blue-50 border-blue-100"
         iconBg="bg-blue-100"
-        icon="⚡"
+        icon={
+          <svg className="w-6 h-6 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        }
       />
 
       {/* KPI 3: Pendientes de verificar */}
@@ -66,7 +74,11 @@ export default function KpiCards({ totalMiembros, verificados, tareasActivas, is
           sub="Miembros sin verificar en Discord"
           color="bg-amber-50 border-amber-100"
           iconBg="bg-amber-100"
-          icon="⏳"
+          icon={
+            <svg className="w-6 h-6 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          }
         />
       )}
     </div>

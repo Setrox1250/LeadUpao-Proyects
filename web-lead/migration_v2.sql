@@ -13,4 +13,4 @@ ALTER TABLE public.miembros
 --    el miembro, usado para /verificar en Discord y para el login web alterno.
 ALTER TABLE public.miembros
   ADD COLUMN IF NOT EXISTS auth_user_id uuid UNIQUE,
-  ADD COLUMN IF NOT EXISTS codigo_verificacion varchar(10) UNIQUE;
+  ADD COLUMN IF NOT EXISTS codigo_verificacion varchar(20) UNIQUE;

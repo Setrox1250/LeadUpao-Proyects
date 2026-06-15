@@ -2,16 +2,19 @@
 
 import { useEffect, useState } from 'react'
 import { createClient }         from '@/lib/supabase/client'
-import { PILARES, TASK_COLUMNS, ETIQUETA_COLORS, type EtiquetaTarea } from '@/lib/constants'
-import type { Tarea } from '@/types'
+import { actualizarEstadoTarea, eliminarTarea } from '@/lib/actions/tareas'
+import { TASK_COLUMNS, ETIQUETA_COLORS, type EtiquetaTarea } from '@/lib/constants'
+import { useToast } from '@/components/ui/Toast'
+import type { Tarea, EstadoTarea, Pilar } from '@/types'
 import CreateTaskModal from './CreateTaskModal'
 
 type Props = {
   initialTasks:  Tarea[]
   userPilar:     string
   isDirectiva:   boolean
-  isLider:       boolean
+  isStaff:       boolean
   pilarPropio:   string
+  pilares:       Pilar[]
 }
 
 // ─── Botón de papelera con confirmación inline ─────────────────────────────
@@ -124,9 +127,11 @@ export default function TasksBoard({
   initialTasks,
   userPilar,
   isDirectiva,
-  isLider,
+  isStaff,
   pilarPropio,
+  pilares,
 }: Props) {
+  const { showToast } = useToast()
   const [tasks, setTasks]               = useState<Tarea[]>(initialTasks)
   const [selectedPilar, setSelectedPilar] = useState(userPilar)
   const [realtimeStatus, setStatus]     = useState<'connecting' | 'connected' | 'error'>('connecting')
@@ -134,9 +139,9 @@ export default function TasksBoard({
 
   const supabase = createClient()
 
-  // Puede eliminar si es directiva (President/VP) o es Leader del pilar de esa tarea
+  // Puede eliminar si es directiva (President/VP) o es staff del pilar de esa tarea
   const canDelete = (task: Tarea) =>
-    isDirectiva || (isLider && task.pilar === pilarPropio)
+    isDirectiva || (isStaff && task.pilar === pilarPropio)
 
   // ── Suscripción Realtime ───────────────────────────────────────────────
   useEffect(() => {
@@ -165,24 +170,16 @@ export default function TasksBoard({
     return () => { supabase.removeChannel(channel) }
   }, [supabase])
 
-  // ── Cambiar estado ─────────────────────────────────────────────────────
+  // ── Cambiar estado (Server Action con validación de rol/pilar) ─────────
   const handleStatusChange = async (taskId: string, newStatus: string) => {
-    const { error } = await supabase
-      .from('tareas')
-      .update({ estado: newStatus })
-      .eq('id', taskId)
-
-    if (error) console.error('[TasksBoard] Error actualizando estado:', error)
+    const { error } = await actualizarEstadoTarea(taskId, newStatus as EstadoTarea)
+    if (error) showToast('error', error)
   }
 
-  // ── Eliminar tarea ─────────────────────────────────────────────────────
+  // ── Eliminar tarea (Server Action con validación de rol/pilar) ─────────
   const handleDelete = async (taskId: string) => {
-    const { error } = await supabase
-      .from('tareas')
-      .delete()
-      .eq('id', taskId)
-
-    if (error) console.error('[TasksBoard] Error eliminando tarea:', error)
+    const { error } = await eliminarTarea(taskId)
+    if (error) showToast('error', error)
     // El DELETE se refleja automáticamente vía Realtime
   }
 
@@ -201,7 +198,7 @@ export default function TasksBoard({
                 onChange={e => setSelectedPilar(e.target.value)}
                 className="border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-lead-blue"
               >
-                {PILARES.map(p => <option key={p} value={p}>{p}</option>)}
+                {pilares.map(p => <option key={p.id} value={p.nombre}>{p.nombre}</option>)}
               </select>
               <span className="text-xs text-amber-600 bg-amber-50 border border-amber-100 px-2 py-1 rounded-full font-medium">
                 Vista directiva
@@ -230,8 +227,8 @@ export default function TasksBoard({
             </span>
           </div>
 
-          {/* Botón Nueva Tarea — visible para directiva y líderes */}
-          {(isDirectiva || isLider) && (
+          {/* Botón Nueva Tarea — visible para directiva y staff */}
+          {(isDirectiva || isStaff) && (
             <button
               onClick={() => setShowCreate(true)}
               className="flex items-center gap-1.5 bg-lead-navy hover:bg-lead-blue text-white text-xs font-medium px-3 py-2 rounded-xl transition-colors"
@@ -285,6 +282,7 @@ export default function TasksBoard({
         <CreateTaskModal
           defaultPilar={selectedPilar}
           canChangePilar={isDirectiva}
+          pilares={pilares}
           onClose={() => setShowCreate(false)}
           onSuccess={() => setShowCreate(false)}
         />

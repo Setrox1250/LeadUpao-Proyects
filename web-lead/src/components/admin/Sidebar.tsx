@@ -3,11 +3,13 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
+import ChangePasswordModal from './ChangePasswordModal'
 
 type Props = {
   userName: string
   userRole: string
   isAdmin:  boolean
+  isFounder: boolean
   signOutAction: () => Promise<void>
 }
 
@@ -16,12 +18,14 @@ type MenuItem = {
   label: string
   href:  string
   icon:  React.ReactNode
-  adminOnly?: boolean
+  adminOnly?:   boolean
+  founderOnly?: boolean
 }
 
-export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: Props) {
+export default function Sidebar({ userName, userRole, isAdmin, isFounder, signOutAction }: Props) {
   const [isOpen, setIsOpen] = useState(false)
   const [isCollapsed, setIsCollapsed] = useState(false)
+  const [showPasswordModal, setShowPasswordModal] = useState(false)
   const searchParams = useSearchParams()
   const activeTab = searchParams.get('tab') ?? 'dashboard'
 
@@ -65,19 +69,31 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
       )
     },
     {
-      id: 'solicitudes',
-      label: 'Solicitudes Registro',
-      href: '/admin?tab=solicitudes',
+      id: 'auditoria',
+      label: 'Auditoría',
+      href: '/admin?tab=auditoria',
       adminOnly: true,
       icon: (
         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+        </svg>
+      )
+    },
+    {
+      id: 'configuracion',
+      label: 'Configuración',
+      href: '/admin?tab=configuracion',
+      founderOnly: true,
+      icon: (
+        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
         </svg>
       )
     }
   ]
 
-  const filteredItems = menuItems.filter(item => !item.adminOnly || isAdmin)
+  const filteredItems = menuItems.filter(item => (!item.adminOnly || isAdmin) && (!item.founderOnly || isFounder))
 
   const NavLinks = () => (
     <nav className="space-y-1.5 px-3 flex-1">
@@ -131,6 +147,7 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
         </div>
         <button
           onClick={() => setIsOpen(true)}
+          aria-label="Abrir menú de navegación"
           className="p-2 -mr-2 text-gray-400 hover:text-white focus:outline-none"
         >
           <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -158,6 +175,7 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
         {/* Floating toggle button for desktop */}
         <button
           onClick={() => setIsCollapsed(!isCollapsed)}
+          aria-label={isCollapsed ? 'Expandir menú' : 'Minimizar menú'}
           className="hidden lg:flex absolute top-1/2 -translate-y-1/2 -right-3 w-6 h-6 rounded-full bg-lead-gold hover:bg-lead-crimson text-white items-center justify-center shadow-lg border border-white/10 z-50 cursor-pointer transition-transform duration-200 hover:scale-110"
           title={isCollapsed ? 'Expandir menú' : 'Minimizar menú'}
         >
@@ -175,7 +193,7 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
         <div>
           <div className="h-16 flex items-center px-5 border-b border-white/5 overflow-hidden">
             <div className="flex items-center w-full">
-              <div className="w-8 h-8 bg-lead-gold rounded-lg flex items-center justify-center shadow-lg shadow-lead-gold/20 flex-shrink-0 animate-pulse">
+              <div className="w-8 h-8 bg-lead-gold rounded-lg flex items-center justify-center shadow-lg shadow-lead-gold/20 flex-shrink-0">
                 <span className="text-lead-navy font-black text-base">L</span>
               </div>
               <div className={`transition-all duration-300 ease-in-out whitespace-nowrap overflow-hidden ${
@@ -188,6 +206,7 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
             {/* Botón cerrar en móvil */}
             <button
               onClick={() => setIsOpen(false)}
+              aria-label="Cerrar menú de navegación"
               className="lg:hidden p-1 text-gray-400 hover:text-white transition-colors ml-auto"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -220,6 +239,24 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
             </div>
           </div>
 
+          <button
+            type="button"
+            onClick={() => setShowPasswordModal(true)}
+            className={`w-full flex items-center justify-center gap-2 rounded-xl text-xs font-semibold text-gray-300 hover:text-white bg-white/5 border border-white/5 hover:bg-white/10 transition-all duration-200 mb-2 ${
+              isCollapsed ? 'lg:h-10 lg:w-10 lg:p-0' : 'py-2.5 px-4'
+            }`}
+            title={isCollapsed ? 'Cambiar contraseña' : undefined}
+          >
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 7a2 2 0 012 2m4 0a6 6 0 11-12 0 6 6 0 0112 0zM7 9l-4 4m0 0l2 2m-2-2l2-2" />
+            </svg>
+            <span className={`transition-all duration-300 ease-in-out whitespace-nowrap overflow-hidden ${
+              isCollapsed ? 'lg:w-0 lg:opacity-0' : 'w-auto opacity-100'
+            }`}>
+              Cambiar contraseña
+            </span>
+          </button>
+
           <form action={signOutAction}>
             <button
               type="submit"
@@ -240,6 +277,10 @@ export default function Sidebar({ userName, userRole, isAdmin, signOutAction }: 
           </form>
         </div>
       </aside>
+
+      {showPasswordModal && (
+        <ChangePasswordModal onClose={() => setShowPasswordModal(false)} />
+      )}
     </>
   )
 }

@@ -1,6 +1,9 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect }     from 'next/navigation'
 import Sidebar          from '@/components/admin/Sidebar'
+import ToastProvider    from '@/components/ui/Toast'
+import { getMiembroPerfil } from '@/lib/miembro'
+import { isAdmin as checkIsAdmin, isFounder as checkIsFounder, getCargoLabel } from '@/lib/auth'
 
 // El middleware ya bloquea el acceso no autenticado,
 // pero este layout hace una segunda verificación server-side
@@ -11,18 +14,18 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   if (!user) redirect('/')
 
-  const discordId = user.user_metadata?.provider_id ?? ''
+  const discordId = user.user_metadata?.provider_id ?? null
 
   // Obtener perfil para la barra lateral y validación de roles
-  const { data: perfil } = await supabase
-    .from('miembros')
-    .select('nombre_completo, rol, pilar')
-    .eq('discord_id', discordId)
-    .maybeSingle()
+  const perfil = await getMiembroPerfil(supabase, user.id, discordId)
 
-  const userNombre  = perfil?.nombre_completo ?? user.user_metadata?.full_name ?? user.email ?? 'Miembro'
-  const userRolLead = perfil ? (perfil.rol === 'President' || perfil.rol === 'Vice-President' ? perfil.rol : perfil.pilar) : 'Miembro'
-  const isAuthorizedAdmin = userRolLead === 'President' || userRolLead === 'Vice-President' || userRolLead === 'Innovación Tecnológica'
+  // El registro de nuevos miembros es solo por administrador
+  if (!perfil) redirect('/?error=not_registered')
+
+  const userNombre  = perfil.nombre_completo ?? user.user_metadata?.full_name ?? user.email ?? 'Miembro'
+  const userCargoLabel = getCargoLabel(perfil)
+  const isAdmin   = checkIsAdmin(perfil)
+  const isFounder = checkIsFounder(perfil)
 
   const handleSignOut = async () => {
     'use server'
@@ -32,21 +35,24 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
-      {/* Barra lateral / Sidebar responsiva */}
-      <Sidebar
-        userName={userNombre}
-        userRole={userRolLead}
-        isAdmin={isAuthorizedAdmin}
-        signOutAction={handleSignOut}
-      />
+    <ToastProvider>
+      <div className="min-h-screen bg-gray-50 flex flex-col lg:flex-row">
+        {/* Barra lateral / Sidebar responsiva */}
+        <Sidebar
+          userName={userNombre}
+          userRole={userCargoLabel}
+          isAdmin={isAdmin}
+          isFounder={isFounder}
+          signOutAction={handleSignOut}
+        />
 
-      {/* Contenido principal scrollable */}
-      <div className="flex-1 flex flex-col min-w-0 lg:h-screen lg:overflow-y-auto">
-        <main className="p-6 md:p-8 max-w-6xl w-full mx-auto">
-          {children}
-        </main>
+        {/* Contenido principal scrollable */}
+        <div className="flex-1 flex flex-col min-w-0 lg:h-screen lg:overflow-y-auto">
+          <main className="p-6 md:p-8 max-w-6xl w-full mx-auto">
+            {children}
+          </main>
+        </div>
       </div>
-    </div>
+    </ToastProvider>
   )
 }

@@ -1,33 +1,3 @@
-// Roles oficiales de LEAD UPAO
-export const ROLES = [
-  'Miembro',
-  'Leader',
-  'Chief of Staff',
-  'Treasure / Fundraising',
-  'Vice-President',
-  'President',
-] as const
-
-export type Rol = (typeof ROLES)[number]
-
-// Pilares oficiales de LEAD UPAO
-export const PILARES = [
-  'Innovación Tecnológica',
-  'Desarrollo del Capítulo',
-  'Excelencia Académica',
-  'Liderazgo',
-  'Desarrollo Profesional',
-  'Impacto Comunitario',
-  'Excelencia Femenina',
-  'LEAD Academia',
-] as const
-
-export type Pilar = (typeof PILARES)[number]
-
-// Roles y pilares administrativos (para permisos de directiva/supervisión)
-export const ROLES_ADMIN = ['President', 'Vice-President'] as const
-export const PILAR_ADMIN_EXCEPTION = 'Innovación Tecnológica'
-
 // Etiquetas uniformes para tareas (deben coincidir con los tags del foro de Discord)
 export const ETIQUETAS_TAREA = [
   'Urgente',
@@ -46,6 +16,22 @@ export const ETIQUETA_COLORS: Record<EtiquetaTarea, string> = {
   'Documentación':     'bg-blue-100 text-blue-700 border-blue-200',
   'Operaciones':       'bg-orange-100 text-orange-700 border-orange-200',
   'Evento / Proyecto': 'bg-green-100 text-green-700 border-green-200',
+}
+
+// Colores Tailwind por pilar / cargo de directiva para los badges de "Pilar de Trabajo"
+export const PILAR_COLORS: Record<string, string> = {
+  'Technological Innovation': 'bg-blue-50 text-blue-700',
+  'Chapter Development':      'bg-emerald-50 text-emerald-700',
+  'Academic Excellence':      'bg-violet-50 text-violet-700',
+  'Leadership':               'bg-amber-50 text-amber-700',
+  'Professional Development': 'bg-cyan-50 text-cyan-700',
+  'Community Impact':          'bg-rose-50 text-rose-700',
+  'Women\'s Excellence':       'bg-pink-50 text-pink-700',
+  'LEAD Academy':             'bg-orange-50 text-orange-700',
+  'President':                'bg-lead-navy/10 text-lead-navy',
+  'Vice-President':           'bg-lead-navy/10 text-lead-navy',
+  'Chief of Staff':           'bg-gray-100 text-gray-700',
+  'Treasure / Fundraising':   'bg-gray-100 text-gray-700',
 }
 
 // Columnas del tablero Kanban con su estilo de Tailwind

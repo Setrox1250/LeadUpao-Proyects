@@ -1,11 +1,18 @@
 import { createClient }  from '@/lib/supabase/server'
 import { redirect }       from 'next/navigation'
 import MembersTable        from '@/components/admin/MembersTable'
-import ApprovalsTable      from '@/components/admin/ApprovalsTable'
 import TasksBoard          from '@/components/admin/TasksBoard'
 import KpiCards            from '@/components/admin/KpiCards'
 import PillarChart         from '@/components/admin/PillarChart'
-import type { PilarStat, Miembro }  from '@/types'
+import AuditLogTable        from '@/components/admin/AuditLogTable'
+import ConfiguracionPanel   from '@/components/admin/ConfiguracionPanel'
+import { getMiembroPerfil } from '@/lib/miembro'
+import { isAdmin as checkIsAdmin, isStaff as checkIsStaff, isFounder as checkIsFounder, getCargoLabel } from '@/lib/auth'
+import { obtenerLogsAuditoria } from '@/lib/actions/auditoria'
+import { obtenerRoles } from '@/lib/actions/roles'
+import { obtenerPilares } from '@/lib/actions/pilares'
+import { obtenerRedesSociales } from '@/lib/actions/redesSociales'
+import type { PilarStat, Miembro, LogAuditoria, Rol, Pilar, RedSocial }  from '@/types'
 
 export const metadata = { title: 'Dashboard – LEAD UPAO Admin' }
 
@@ -22,33 +29,34 @@ export default async function AdminPage({
   if (!user) redirect('/')
 
   // Discord OAuth guarda el numeric ID del usuario en provider_id
-  const discordId = user.user_metadata?.provider_id ?? ''
+  const discordId = user.user_metadata?.provider_id ?? null
 
   // ── 2. Perfil del usuario logueado en la tabla miembros ──────────────────
-  const { data: perfil } = await supabase
-    .from('miembros')
-    .select('nombre_completo, rol, pilar')
-    .eq('discord_id', discordId)
-    .maybeSingle()
+  const perfil = await getMiembroPerfil(supabase, user.id, discordId)
 
-  // Si no está registrado en la base de datos, mandarlo a onboarding
-  if (!perfil) redirect('/onboarding')
+  // El registro de nuevos miembros es solo por administrador
+  if (!perfil) redirect('/?error=not_registered')
 
-  const userRolLead = perfil.rol === 'President' || perfil.rol === 'Vice-President' ? perfil.rol : perfil.pilar
+  const userCargoLabel = getCargoLabel(perfil)
   const userNombre  = perfil.nombre_completo
 
-  // RBAC de Administrador: Solo 'President', 'Vice-President' o 'Innovación Tecnológica'
-  const isAuthorizedAdmin = userRolLead === 'President' || userRolLead === 'Vice-President' || userRolLead === 'Innovación Tecnológica'
+  // Administrador: gestiona miembros, auditoría y supervisa el Kanban de todos los pilares
+  const isAdmin = checkIsAdmin(perfil)
 
-  // Rol Supervisor: 'President' o 'Vice-President' (permite supervisión global de pilares en Kanban)
-  const isSupervisor = userRolLead === 'President' || userRolLead === 'Vice-President'
+  // Staff: además de admins, cargos de nivel intermedio (ej. Leader) con permisos sobre su propio pilar
+  const isStaff = checkIsStaff(perfil)
+
+  // Founder: solo President/Vice-President, gestiona el catálogo de roles y pilares
+  const isFounder = checkIsFounder(perfil)
 
   // Permisos granulares para el Kanban
-  const isLider     = perfil.rol === 'Leader'
   const pilarPropio = perfil.pilar ?? ''
 
-  // Si intenta acceder a pestañas de administrador sin autorización, redirigir al inicio del dashboard
-  if ((activeTab === 'miembros' || activeTab === 'solicitudes') && !isAuthorizedAdmin) {
+  // Si intenta acceder a pestañas restringidas sin autorización, redirigir al inicio del dashboard
+  if ((activeTab === 'miembros' || activeTab === 'auditoria') && !isAdmin) {
+    redirect('/admin?tab=dashboard')
+  }
+  if (activeTab === 'configuracion' && !isFounder) {
     redirect('/admin?tab=dashboard')
   }
 
@@ -60,7 +68,7 @@ export default async function AdminPage({
 
   if (activeTab === 'dashboard') {
     // Si es administrador, cargamos los totales del equipo
-    if (isAuthorizedAdmin) {
+    if (isAdmin) {
       const { data: allMembersRaw } = await supabase
         .from('miembros')
         .select('estado')
@@ -84,14 +92,30 @@ export default async function AdminPage({
       .sort((a, b) => b.completadas - a.completadas)
   }
 
+  // Catálogos de roles y pilares (selects de Miembros/Tareas/Configuración)
+  let roles: Rol[] = []
+  let pilares: Pilar[] = []
+  if (activeTab === 'miembros' || activeTab === 'tareas' || activeTab === 'configuracion') {
+    const [{ data: rolesData }, { data: pilaresData }] = await Promise.all([obtenerRoles(), obtenerPilares()])
+    roles = rolesData ?? []
+    pilares = pilaresData ?? []
+  }
+
+  // Catálogo de redes sociales / enlace de Discord (panel de Configuración)
+  let redes: RedSocial[] = []
+  if (activeTab === 'configuracion') {
+    const { data: redesData } = await obtenerRedesSociales()
+    redes = redesData ?? []
+  }
+
   // Tareas (Tablero)
   let tareas: any[] | null = null
-  const userPilar = userRolLead
-  const defaultPilar = isSupervisor ? 'Innovación Tecnológica' : userPilar
+  const userPilar = pilarPropio
+  const defaultPilar = userPilar || pilares[0]?.nombre || ''
 
   if (activeTab === 'tareas') {
     const tareasQuery = supabase.from('tareas').select('*')
-    const { data } = isSupervisor
+    const { data } = isAdmin
       ? await tareasQuery.order('created_at', { ascending: false })
       : await tareasQuery
           .eq('pilar', userPilar)
@@ -101,29 +125,22 @@ export default async function AdminPage({
 
   // Miembros
   let miembros: Miembro[] | null = null
-  if (activeTab === 'miembros' && isAuthorizedAdmin) {
+  if (activeTab === 'miembros' && isAdmin) {
     const { data: allMembers } = await supabase
       .from('miembros')
-      .select('*')
+      .select('id, discord_id, auth_user_id, nombre_completo, correo_institucional, rol, cargo, pilar, estado, codigo_verificacion, creado_en')
       .order('creado_en', { ascending: false })
     miembros = (allMembers ?? []).map(m => ({
       ...m,
-      rol_lead: m.rol === 'President' || m.rol === 'Vice-President' ? m.rol : m.pilar
+      rol_lead: m.pilar || m.cargo,
     }))
   }
 
-  // Solicitudes
-  let solicitudes: Miembro[] | null = null
-  if (activeTab === 'solicitudes' && isAuthorizedAdmin) {
-    const { data: pendingRequests } = await supabase
-      .from('miembros')
-      .select('*')
-      .eq('estado', 'PENDIENTE')
-      .order('creado_en', { ascending: false })
-    solicitudes = (pendingRequests ?? []).map(m => ({
-      ...m,
-      rol_lead: m.rol === 'President' || m.rol === 'Vice-President' ? m.rol : m.pilar
-    }))
+  // Auditoría
+  let logsAuditoria: LogAuditoria[] = []
+  if (activeTab === 'auditoria' && isAdmin) {
+    const { data } = await obtenerLogsAuditoria()
+    logsAuditoria = data ?? []
   }
 
   return (
@@ -134,8 +151,8 @@ export default async function AdminPage({
           Bienvenido, {userNombre} 👋
         </h1>
         <p className="text-gray-500 text-xs mt-1">
-          Cargo / Pilar: <span className="font-semibold text-lead-blue">{userRolLead}</span>
-          {isAuthorizedAdmin && (
+          Cargo / Pilar: <span className="font-semibold text-lead-blue">{userCargoLabel}</span>
+          {isAdmin && (
             <span className="ml-2 bg-lead-gold/25 text-amber-800 text-[10px] font-bold px-2 py-0.5 rounded-full">
               Administrador
             </span>
@@ -151,11 +168,11 @@ export default async function AdminPage({
             totalMiembros={totalMiembros}
             verificados={verificados}
             tareasActivas={tareasActivas}
-            isAdmin={isAuthorizedAdmin}
+            isAdmin={isAdmin}
           />
 
           {/* Gráfico por Pilar */}
-          {isAuthorizedAdmin && (
+          {isAdmin && (
             <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
               <h2 className="text-base font-bold text-gray-800 mb-4">
                 Tareas completadas por pilar
@@ -183,24 +200,40 @@ export default async function AdminPage({
           <TasksBoard
             initialTasks={tareas ?? []}
             userPilar={defaultPilar}
-            isDirectiva={isSupervisor}
-            isLider={isLider}
+            isDirectiva={isAdmin}
+            isStaff={isStaff}
             pilarPropio={pilarPropio}
+            pilares={pilares}
           />
         </section>
       )}
 
-      {activeTab === 'miembros' && isAuthorizedAdmin && (
+      {activeTab === 'miembros' && isAdmin && (
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 animate-fade-in">
           <h2 className="text-base font-bold text-gray-800 mb-4">Gestión de Miembros</h2>
-          <MembersTable initialMembers={miembros ?? []} />
+          <MembersTable initialMembers={miembros ?? []} roles={roles} pilares={pilares} />
         </section>
       )}
 
-      {activeTab === 'solicitudes' && isAuthorizedAdmin && (
+      {activeTab === 'auditoria' && isAdmin && (
         <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 animate-fade-in">
-          <h2 className="text-base font-bold text-gray-800 mb-4">Solicitudes de Registro Pendientes</h2>
-          <ApprovalsTable initialSolicitudes={solicitudes ?? []} adminDiscordId={discordId} />
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-gray-800">Historial de Auditoría</h2>
+            <p className="text-gray-400 text-[10px]">Últimas 200 acciones administrativas registradas</p>
+          </div>
+          <AuditLogTable logs={logsAuditoria} />
+        </section>
+      )}
+
+      {activeTab === 'configuracion' && isFounder && (
+        <section className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 animate-fade-in">
+          <div className="mb-4">
+            <h2 className="text-base font-bold text-gray-800">Configuración</h2>
+            <p className="text-gray-400 text-[10px]">
+              Gestiona los cargos (roles) y pilares oficiales de LEAD UPAO
+            </p>
+          </div>
+          <ConfiguracionPanel roles={roles} pilares={pilares} redes={redes} />
         </section>
       )}
     </div>
