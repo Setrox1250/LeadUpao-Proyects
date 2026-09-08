@@ -1,0 +1,22 @@
+{
+  "name": "leadupao",
+  "version": "1.0.0-alpha.0",
+  "private": true,
+  "description": "Monorepo de la plataforma interna de LEAD UPAO (web + bot de Discord).",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=20"
+  },
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev:web": "npm run dev --workspace @leadupao/web",
+    "dev:bot": "npm run dev --workspace @leadupao/bot",
+    "build": "npm run build --workspaces --if-present",
+    "lint": "npm run lint --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "check": "node scripts/check-repo.mjs && npm run lint && npm run typecheck && npm run test"
+  }
+}

@@ -1,11 +1,11 @@
 {
-  "name": "backend-bot",
+  "name": "@leadupao/bot",
   "version": "1.0.0",
-  "description": "",
+  "description": "Bot de Discord de LEAD UPAO.",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev": "node --watch index.js"
   },
   "keywords": [],
   "author": "",
