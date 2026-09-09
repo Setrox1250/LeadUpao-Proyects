@@ -46,6 +46,7 @@ const VINCULACION_INICIAL = {
   'Chief of Staff':         'Chief of Staff 👥',
   'Treasure / Fundraising': 'Treasurer 💰',
   'Member':                 'Member',
+  'Marketing':              'Marketing 🎨',
   // 'Leader' no existe todavía en Discord: el script lo creará.
 };
 
