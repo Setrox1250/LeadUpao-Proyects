@@ -1,4 +1,5 @@
 import { createClient }  from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { redirect }       from 'next/navigation'
 import MembersTable        from '@/components/admin/MembersTable'
 import TasksBoard          from '@/components/admin/TasksBoard'
@@ -32,7 +33,7 @@ export default async function AdminPage({
   const discordId = user.user_metadata?.provider_id ?? null
 
   // ── 2. Perfil del usuario logueado en la tabla miembros ──────────────────
-  const perfil = await getMiembroPerfil(supabase, user.id, discordId)
+  const perfil = await getMiembroPerfil(user.id, discordId)
 
   // El registro de nuevos miembros es solo por administrador
   if (!perfil) redirect('/?error=not_registered')
@@ -69,7 +70,10 @@ export default async function AdminPage({
   if (activeTab === 'dashboard') {
     // Si es administrador, cargamos los totales del equipo
     if (isAdmin) {
-      const { data: allMembersRaw } = await supabase
+      // `miembros` no concede lectura a la clave pública (ver
+      // supabase/hotfix/README.md). El acceso ya está autorizado arriba por
+      // isAdmin, así que la consulta va con privilegios de servicio.
+      const { data: allMembersRaw } = await createAdminClient()
         .from('miembros')
         .select('estado')
       totalMiembros = allMembersRaw?.length ?? 0
@@ -126,7 +130,7 @@ export default async function AdminPage({
   // Miembros
   let miembros: Miembro[] | null = null
   if (activeTab === 'miembros' && isAdmin) {
-    const { data: allMembers } = await supabase
+    const { data: allMembers } = await createAdminClient()
       .from('miembros')
       .select('id, discord_id, auth_user_id, nombre_completo, correo_institucional, rol, cargo, pilar, estado, codigo_verificacion, creado_en')
       .order('creado_en', { ascending: false })

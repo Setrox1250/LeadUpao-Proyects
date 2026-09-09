@@ -45,24 +45,38 @@ todo el flujo de login y registro usan `service_role`, que ignora grants y RLS.
 Antes de aplicarlo, ejecutar `2026-09-08_auditoria_exposicion.sql` para tener
 una foto del estado y detectar manipulaciones.
 
-### Etapa 2 — por PR, con cambio de código
+### Etapa 2 — hecha en código, pendiente de aplicar el SQL
 
-Activar RLS en `miembros` con políticas por fila. Requiere resolver dos cosas
-que hoy dependen de leer filas ajenas con la clave anónima:
+```
+supabase/hotfix/2026-09-09_miembros_rls_etapa2.sql
+```
 
-1. **Vínculo heredado por `discord_id`** (`apps/web/src/lib/miembro.ts:22`).
-   Busca una fila cuyo `auth_user_id` todavía es `null`, así que ninguna
-   política basada en `auth.uid()` la alcanza. Debe pasar a `createAdminClient()`.
+Cierra `miembros` también a `authenticated`, que tras la etapa 1 aún podía leer
+todas las filas —hashes y códigos de verificación de terceros incluidos—. Si el
+alta libre de Supabase Auth está activa, cualquiera podía crearse una cuenta y
+llegar ahí.
 
-2. **Listado de administradores** (`apps/web/src/app/admin/(dashboard)/page.tsx:73,130`).
-   Una política que consulte `miembros` para saber si el solicitante es admin
-   se llama a sí misma. Necesita una función `security definer`, o mover esas
-   dos lecturas a `createAdminClient()` — el código ya comprueba `isAdmin` en
-   el servidor antes de usarlas.
+Dos rutas leían `miembros` con la clave pública y se habrían roto:
 
-La opción de mover ambas a `service_role` es la más simple y es coherente con
-el resto de la app, que ya centraliza el control de acceso en Server Actions.
-Con eso, la política de `miembros` puede quedar en «solo tu propia fila».
+1. **Resolución de identidad** (`apps/web/src/lib/miembro.ts`). Su segundo paso
+   busca por `discord_id` una fila cuyo `auth_user_id` todavía es `null`, así
+   que ninguna política basada en `auth.uid()` puede alcanzarla.
+2. **Los dos listados del panel** (`apps/web/src/app/admin/(dashboard)/page.tsx`).
+   Una política que consultara `miembros` para saber si el solicitante es admin
+   se llamaría a sí misma.
+
+Ambas pasaron a `createAdminClient()`. Es seguro: corren solo en servidor, tras
+`auth.getUser()`, y con un identificador que no elige el cliente.
+
+**Orden de despliegue.** Primero el código, después el SQL. Al revés, el login
+deja de resolver el perfil y todos caen en `/?error=not_registered`. El código
+funciona con o sin el SQL aplicado, así que desplegarlo antes no tiene riesgo.
+
+La tabla queda **sin políticas**, a propósito. Añadir una de «solo tu propia
+fila» invitaría a volver a leer `miembros` desde el cliente, y el control de
+acceso de esta aplicación vive en las Server Actions, que ya comprueban
+`isAdmin`/`isStaff`/`isFounder`. Dos mecanismos de autorización en paralelo se
+desincronizan.
 
 ## Rotación de credenciales
 

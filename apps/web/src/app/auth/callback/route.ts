@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
 
       if (user) {
         const discordId = user.user_metadata?.provider_id ?? null
-        const miembro = await getMiembroPerfil(supabase, user.id, discordId)
+        const miembro = await getMiembroPerfil(user.id, discordId)
 
         // El registro de nuevos miembros es solo por administrador:
         // si esta cuenta de Discord no está vinculada a ningún miembro, no hay acceso.

@@ -29,7 +29,7 @@ export default async function LoginPage({
 
   if (user) {
     const discordId = user.user_metadata?.provider_id ?? null
-    const miembro = await getMiembroPerfil(supabase, user.id, discordId)
+    const miembro = await getMiembroPerfil(user.id, discordId)
     if (miembro) redirect('/admin')
   }
 

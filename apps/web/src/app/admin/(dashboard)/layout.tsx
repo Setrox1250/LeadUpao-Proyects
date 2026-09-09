@@ -17,7 +17,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const discordId = user.user_metadata?.provider_id ?? null
 
   // Obtener perfil para la barra lateral y validación de roles
-  const perfil = await getMiembroPerfil(supabase, user.id, discordId)
+  const perfil = await getMiembroPerfil(user.id, discordId)
 
   // El registro de nuevos miembros es solo por administrador
   if (!perfil) redirect('/?error=not_registered')

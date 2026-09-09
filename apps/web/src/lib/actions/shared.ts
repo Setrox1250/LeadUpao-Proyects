@@ -10,7 +10,7 @@ export async function getMiembroActual() {
   if (!user) throw new Error('No autenticado.')
 
   const discordId = user.user_metadata?.provider_id ?? null
-  const perfil = await getMiembroPerfil(supabase, user.id, discordId)
+  const perfil = await getMiembroPerfil(user.id, discordId)
   if (!perfil) throw new Error('No autenticado.')
 
   return perfil
