@@ -15,6 +15,23 @@ async function cargoRequierePilar(admin: ReturnType<typeof createAdminClient>, c
   return data ? data.requiere_pilar : null
 }
 
+// Resuelve el pilar a guardar. Devuelve `{ error }` si el cargo exige un área
+// y no se eligió ninguna.
+//
+// La cadena vacía NO es equivalente a NULL: `miembros.pilar` tiene un FK a
+// `pilares(nombre)`, que admite NULL pero rechaza ''. Antes de la migración
+// 0007 no había FK y esos '' se guardaban sin error, dejando dos miembros con
+// un pilar inválido.
+function resolverPilar(
+  requierePilar: boolean,
+  entrada: string | null,
+): { pilar: string | null } | { error: string } {
+  if (!requierePilar) return { pilar: null }
+  const limpio = (entrada ?? '').trim()
+  if (!limpio) return { error: 'Este cargo requiere un área asignada.' }
+  return { pilar: limpio }
+}
+
 // ─── Crear miembro (solo administradores) ─────────────────────────────────
 // El código de verificación lo genera automáticamente un trigger en Supabase
 // (formato LEAD-0001, LEAD-0002, ...) al dejar la columna en null.
@@ -39,7 +56,9 @@ export async function crearMiembro(formData: FormData) {
   const admin = createAdminClient()
   const requierePilar = await cargoRequierePilar(admin, cargo)
   if (requierePilar === null) return { error: 'Cargo inválido.' }
-  const pilar = requierePilar ? pilarInput : null
+  const resuelto = resolverPilar(requierePilar, pilarInput)
+  if ('error' in resuelto) return { error: resuelto.error }
+  const { pilar } = resuelto
 
   const { data, error } = await admin
     .from('miembros')
@@ -88,7 +107,9 @@ export async function editarMiembro(formData: FormData) {
   const admin = createAdminClient()
   const requierePilar = await cargoRequierePilar(admin, cargo)
   if (requierePilar === null) return { error: 'Cargo inválido.' }
-  const pilar = requierePilar ? pilarInput : null
+  const resuelto = resolverPilar(requierePilar, pilarInput)
+  if ('error' in resuelto) return { error: resuelto.error }
+  const { pilar } = resuelto
 
   const { data, error } = await admin
     .from('miembros')
@@ -204,7 +225,9 @@ export async function aprobarMiembro(formData: FormData) {
   const admin = createAdminClient()
   const requierePilar = await cargoRequierePilar(admin, cargo)
   if (requierePilar === null) return { error: 'Cargo inválido.' }
-  const pilar = requierePilar ? pilarInput : null
+  const resuelto = resolverPilar(requierePilar, pilarInput)
+  if ('error' in resuelto) return { error: resuelto.error }
+  const { pilar } = resuelto
 
   const { error } = await admin
     .from('miembros')

@@ -11,7 +11,7 @@
 -- crea los FK que faltan para que esto no vuelva a pasar.
 --
 -- CAMBIOS
---   1. Repara el huérfano que dejó la 0006.
+--   1. Sanea: repara el huérfano de la 0006 y normaliza `pilar = ''` a NULL.
 --   2. Cargos al español del organigrama; se añade `Líder de Área`.
 --   3. Áreas: 6, como el organigrama. Se fusionan Liderazgo y Desarrollo
 --      Profesional, se da de alta Cooperación y Alianzas, y se retiran
@@ -21,9 +21,23 @@
 begin;
 
 -- ─────────────────────────────────────────────────────────────────────────
--- 1. Reparar el huérfano de la 0006
+-- 1. Saneamiento previo
 -- ─────────────────────────────────────────────────────────────────────────
+-- 1.1 Reparar el huérfano que dejó la 0006.
 update public.miembros set cargo = 'TI' where cargo = 'Admin TI';
+
+-- 1.2 `pilar` debe admitir NULL: los cargos transversales (Presidente,
+--     Vicepresidente, Chief of Staff...) no pertenecen a ningún área.
+--     Idempotente: no hace nada si ya era nulable.
+alter table public.miembros alter column pilar drop not null;
+
+-- 1.3 Normalizar cadenas vacías a NULL.
+--     Presidente y Vicepresidente tenían `pilar = ''`, que no es lo mismo que
+--     NULL: un FK admite NULL, pero '' tendría que existir en `pilares`. Es lo
+--     que hizo fallar el primer intento de esta migración con
+--     «Key (pilar)=() is not present in table pilares».
+update public.miembros set pilar = null
+ where pilar is not null and btrim(pilar) = '';
 
 -- ─────────────────────────────────────────────────────────────────────────
 -- 2. Cargos
