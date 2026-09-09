@@ -19,20 +19,25 @@ export const ETIQUETA_COLORS: Record<EtiquetaTarea, string> = {
 }
 
 // Colores Tailwind por pilar / cargo de directiva para los badges de "Pilar de Trabajo"
+// Colores por área y por cargo de directiva, para los badges.
+// Los nombres siguen el organigrama oficial (migración 0007).
 export const PILAR_COLORS: Record<string, string> = {
-  'Technological Innovation': 'bg-blue-50 text-blue-700',
-  'Chapter Development':      'bg-emerald-50 text-emerald-700',
-  'Academic Excellence':      'bg-violet-50 text-violet-700',
-  'Leadership':               'bg-amber-50 text-amber-700',
-  'Professional Development': 'bg-cyan-50 text-cyan-700',
-  'Community Impact':          'bg-rose-50 text-rose-700',
-  'Women\'s Excellence':       'bg-pink-50 text-pink-700',
-  'LEAD Academy':             'bg-orange-50 text-orange-700',
-  'President':                'bg-lead-navy/10 text-lead-navy',
-  'Vice-President':           'bg-lead-navy/10 text-lead-navy',
-  'Chief of Staff':           'bg-gray-100 text-gray-700',
-  'Treasure / Fundraising':   'bg-gray-100 text-gray-700',
+  'Área de Innovación Tecnológica':             'bg-blue-50 text-blue-700',
+  'Área Académica':                             'bg-violet-50 text-violet-700',
+  'Área de Liderazgo y Desarrollo Profesional': 'bg-amber-50 text-amber-700',
+  'Área de Impacto Comunitario':                'bg-rose-50 text-rose-700',
+  'Área de Excelencia Femenina':                'bg-pink-50 text-pink-700',
+  'Área de Cooperación y Alianzas':             'bg-emerald-50 text-emerald-700',
+  'Presidente':                                 'bg-lead-navy/10 text-lead-navy',
+  'Vicepresidente':                             'bg-lead-navy/10 text-lead-navy',
+  'TI':                                         'bg-blue-50 text-blue-700',
+  'Chief of Staff':                             'bg-gray-100 text-gray-700',
+  'Treasure / Fundraising':                     'bg-gray-100 text-gray-700',
+  'Marketing':                                  'bg-gray-100 text-gray-700',
 }
+
+// Etiqueta para las tareas que no pertenecen a ningún área.
+export const SIN_AREA = 'General'
 
 // Columnas del tablero Kanban con su estilo de Tailwind
 export const TASK_COLUMNS = [

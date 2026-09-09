@@ -47,15 +47,20 @@ export interface RedSocial {
 }
 
 export interface Tarea {
-  id:               string
-  id_discord_hilo:  string | null
-  titulo:           string
-  descripcion:      string | null
-  etiquetas:        string[]
-  autor_id:         string | null
-  estado:           EstadoTarea
-  pilar:            string
-  created_at?:      string
+  id:                string
+  id_discord_hilo:   string | null
+  titulo:            string
+  descripcion:       string | null
+  etiquetas:         string[]
+  autor_id:          string | null
+  estado:            EstadoTarea
+  // NULL = tarea general, sin área. Va al foro general de Discord.
+  pilar:             string | null
+  // Día de entrega en formato 'YYYY-MM-DD'. Nunca se convierte a Date sin
+  // fijar la zona: es una fecha de calendario, no un instante.
+  fecha_vencimiento: string | null
+  created_at?:       string
+  updated_at?:       string
 }
 
 // Datos que se pasan al gráfico de barras
