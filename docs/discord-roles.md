@@ -13,9 +13,13 @@ Los permisos salen de `roles.nivel_permiso` mediante presets cerrados.
 
 | Nivel | Cargos | Permisos |
 |---|---|---|
-| `admin` | President, Vice-President, Admin TI | 23: gestión de servidor, canales y roles, expulsar, banear, moderar, auditoría |
-| `staff` | Chief of Staff, Treasure / Fundraising, Leader | 17: moderación de mensajes e hilos, silenciar, mover, aislar |
-| `member` | Member | 11: participación básica y voz |
+| `admin` | Presidente, Vicepresidente, TI | 23: gestión de servidor, canales y roles, expulsar, banear, moderar, auditoría |
+| `staff` | Chief of Staff, Treasure / Fundraising, Marketing, Líder de Área | 17: moderación de mensajes e hilos, silenciar, mover, aislar |
+| `member` | Miembro | 11: participación básica y voz |
+
+Los nombres siguen el organigrama oficial (migración `0007`). `Chief of Staff`
+y `Treasure / Fundraising` se quedan en inglés porque el propio organigrama los
+rotula así.
 
 Los roles de **pilar** van sin permisos de servidor a propósito: dan acceso a
 su área mediante overwrites en la categoría, no mediante permisos globales.
@@ -64,8 +68,9 @@ otros roles del servidor; sin ese flag solo se tocan nombres y permisos.
 
 ## Pendiente de decidir
 
-- **`Admin TI`** tiene `orden: 1` colisionando con President y
-  `requiere_pilar: true` pese a ser `admin`. Se añadió fuera de la migración.
-  El script lo trata como admin y no corrige la configuración.
-- **`Marketing 🎨`** existe en Discord pero no en `roles`. Se deja intacto:
-  hay que decidir si se da de alta como cargo o se retira.
+- **`Marketing`** no aparece en el organigrama, pero se dio de alta como cargo
+  vigente (staff, transversal). Confirmar que sigue siéndolo.
+- **Luciana Avellaneda figura dos veces** en el organigrama: Chief of Staff y
+  líder del Área de Impacto Comunitario. `miembros.cargo` es una sola columna,
+  así que hoy no puede expresarse. Pendiente de resolver en la Fase 1.
+- **Faltan 6 de las 10 personas del organigrama** en `miembros`.

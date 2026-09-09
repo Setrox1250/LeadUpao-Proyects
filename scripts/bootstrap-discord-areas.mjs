@@ -35,6 +35,18 @@ import {
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const APLICAR = process.argv.includes('--apply');
 
+/**
+ * Vinculación inicial de áreas: la migración 0007 pasó los nombres al español
+ * del organigrama, así que ya no coinciden con los roles que existen hoy en
+ * Discord. Mapa de un solo uso: en cuanto se guarda `discord_role_id`, deja
+ * de consultarse.
+ *
+ *   clave = pilares.nombre en Supabase   valor = nombre EXACTO hoy en Discord
+ */
+const VINCULACION_INICIAL = {
+  'Área de Innovación Tecnológica': 'Technological Innovation',
+};
+
 const FORO = 'backlog-tareas';
 // Deben coincidir con ESTADO_TAG de apps/bot/services/supabaseListener.js
 const ETIQUETAS_ESTADO = ['En Progreso', 'Completado'];
@@ -99,6 +111,7 @@ await client.login(env.DISCORD_TOKEN);
 const guild = await client.guilds.fetch(env.GUILD_ID);
 await guild.roles.fetch();
 await guild.channels.fetch();
+const yo = await guild.members.fetchMe();
 log(`Servidor: ${guild.name}\n`);
 
 /** Devuelve el objeto si el id sigue existiendo en el servidor, si no null. */
@@ -110,10 +123,19 @@ for (const pilar of pilares) {
   const cambios = {};
 
   // 1. Rol del área
+  const nombreEnDiscord = VINCULACION_INICIAL[pilar.nombre] ?? pilar.nombre;
   let rol = vivo(guild.roles, pilar.discord_role_id)
-        ?? guild.roles.cache.find((r) => r.name === pilar.nombre);
+        ?? guild.roles.cache.find((r) => r.name === nombreEnDiscord);
   if (rol) {
     log(`  · rol ya existe (${rol.id})`);
+    if (rol.name !== pilar.nombre) {
+      if (rol.position >= yo.roles.highest.position) {
+        log(`  ✗ el rol está por encima del bot: renómbralo a mano a «${pilar.nombre}»`);
+      } else {
+        accion(`renombrar rol «${rol.name}» → «${pilar.nombre}»`);
+        if (APLICAR) await rol.setName(pilar.nombre, 'Nombre canónico desde Supabase');
+      }
+    }
   } else {
     accion(`crear rol «${pilar.nombre}»`);
     if (APLICAR) {
@@ -137,6 +159,14 @@ for (const pilar of pilares) {
       (c) => c.type === ChannelType.GuildCategory && c.name === pilar.nombre);
   if (categoria) {
     log(`  · categoría ya existe (${categoria.id})`);
+    if (categoria.name !== pilar.nombre) {
+      accion(`renombrar categoría «${categoria.name}» → «${pilar.nombre}»`);
+      if (APLICAR) await categoria.setName(pilar.nombre, 'Nombre canónico desde Supabase');
+    }
+    // Re-aplicar permisos: reejecutar el script debe dar acceso a los roles
+    // que se hayan vinculado desde la última vez (p. ej. la Directiva).
+    accion('sincronizar permisos de la categoría');
+    if (APLICAR) await categoria.permissionOverwrites.set(permisos, 'Permisos del área');
   } else {
     accion(`crear categoría «${pilar.nombre}»`);
     if (APLICAR) {
@@ -160,6 +190,10 @@ for (const pilar of pilares) {
              c.name === FORO && c.parentId === categoria.id));
   if (foro) {
     log(`  · foro ya existe (${foro.id})`);
+    if (foro.name !== FORO) {
+      accion(`renombrar foro «${foro.name}» → «${FORO}»`);
+      if (APLICAR) await foro.setName(FORO, 'Nombre canónico');
+    }
   } else {
     accion(`crear foro «${FORO}» dentro de la categoría`);
     if (APLICAR && categoria) {

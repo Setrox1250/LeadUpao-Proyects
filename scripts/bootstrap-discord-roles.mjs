@@ -41,13 +41,14 @@ const JERARQUIA = process.argv.includes('--jerarquia');
  *   valor  = nombre EXACTO del rol hoy en Discord
  */
 const VINCULACION_INICIAL = {
-  'President':              'President',
-  'Vice-President':         'Vice-Presidente👑',
+  'Presidente':             'President',
+  'Vicepresidente':         'Vice-Presidente👑',
   'Chief of Staff':         'Chief of Staff 👥',
   'Treasure / Fundraising': 'Treasurer 💰',
-  'Member':                 'Member',
   'Marketing':              'Marketing 🎨',
-  // 'Leader' no existe todavía en Discord: el script lo creará.
+  'Miembro':                'Member',
+  // 'TI' ya está vinculado por discord_role_id; el bot renombrará «Admin TI».
+  // 'Líder de Área' no existe todavía en Discord: el script lo creará.
 };
 
 // ── Entorno ────────────────────────────────────────────────────────────────
