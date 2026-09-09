@@ -2,6 +2,48 @@ require('dotenv').config();
 const { Client, GatewayIntentBits, Collection } = require('discord.js');
 const fs   = require('fs');
 const path = require('path');
+
+// ──────────────────────────────────────────────
+// Validación del entorno
+//
+// Antes de cargar nada más: un DISCORD_TOKEN ausente producía un
+// `DiscordjsError [TokenInvalid]` con traza de discord.js, ya arrancado el
+// servidor keep-alive, sin decir qué variable faltaba. En Render, donde no hay
+// archivo .env y todo viene del dashboard, eso cuesta de diagnosticar.
+// ──────────────────────────────────────────────
+const REQUERIDAS = {
+    DISCORD_TOKEN: 'Token del bot — Discord Developer Portal → Bot → Reset Token',
+    CLIENT_ID:     'Application ID — Discord Developer Portal → General Information',
+    GUILD_ID:      'ID del servidor — clic derecho en el servidor → Copiar ID',
+    SUPABASE_URL:  'URL del proyecto — Supabase → Settings → API',
+    SUPABASE_KEY:  'Clave de servicio — Supabase → Settings → API Keys',
+};
+
+const ausentes = Object.entries(REQUERIDAS).filter(([clave]) => !process.env[clave]?.trim());
+if (ausentes.length) {
+    console.error('\n[ENTORNO] Faltan variables obligatorias:\n');
+    for (const [clave, ayuda] of ausentes) console.error(`  ${clave.padEnd(14)} ${ayuda}`);
+    console.error('\nEn local van en apps/bot/.env; en Render, en Environment.\n');
+    process.exit(1);
+}
+
+// Un token con espacios o saltos de línea al pegarlo da un TokenInvalid
+// indistinguible de un token equivocado.
+if (process.env.DISCORD_TOKEN !== process.env.DISCORD_TOKEN.trim()) {
+    console.error('\n[ENTORNO] DISCORD_TOKEN tiene espacios o saltos de línea alrededor. Vuelve a pegarlo limpio.\n');
+    process.exit(1);
+}
+
+// Avisos que no impiden arrancar, pero desactivan funciones concretas.
+const OPCIONALES = {
+    GENERAL_FORUM_CHANNEL_ID: 'las tareas sin área no se sincronizarán con Discord',
+    ROLE_ID:                  '/verificar no podrá asignar el rol base y fallará',
+    SYNC_SECRET_TOKEN:        'la web no podrá pedir sincronizaciones al bot',
+};
+for (const [clave, efecto] of Object.entries(OPCIONALES)) {
+    if (!process.env[clave]?.trim()) console.warn(`[ENTORNO] Falta ${clave}: ${efecto}.`);
+}
+
 const supabase = require('./database');
 
 // ──────────────────────────────────────────────
