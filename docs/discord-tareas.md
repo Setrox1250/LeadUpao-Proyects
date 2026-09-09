@@ -93,22 +93,27 @@ Consecuencias que hay que respetar al implementar:
 - El foro general vive fuera de las categorías por área, así que el bot no lo
   crea ni lo gestiona: se configura a mano una sola vez.
 
-## Bugs actuales que esto obliga a corregir
+## Bugs corregidos por el camino
 
-Detectados al verificar contra producción el 2026-09-08:
+Detectados al verificar contra producción el 2026-09-08. La tabla `tareas` solo
+tenía `id`, `titulo`, `etiquetas`, `autor_id`, `estado` e `id_discord_hilo`, así
+que **la función de tareas estaba rota en las dos direcciones**:
 
-- `threadCreate.js` inserta `canal_id` y `creador_id`, **columnas que no
-  existen** en `tareas`. El insert falla siempre y el error se traga en el
-  `catch`, así que hoy publicar en el foro no crea ninguna tarea.
-- `threadCreate.js` inserta `estado: 'PENDIENTE'`, que no está en
-  `EstadoTarea` de la web (`BACKLOG | EN_PROGRESO | COMPLETADO`).
-- Solo 1 de 7 filas de `roles` y **0 de 8** de `pilares` tienen
-  `discord_role_id`. Sin ese mapeo no hay a quién dar permisos en la categoría,
-  así que poblarlo es prerrequisito de todo lo anterior.
+- La web no podía crear tareas: `crearTarea` inserta `descripcion`, columna
+  inexistente. Y consultaba `pilar` al cambiar estado y al borrar.
+- El bot no podía crear tareas: `threadCreate.js` insertaba `canal_id` y
+  `creador_id`, también inexistentes, y el error se tragaba en el `catch`.
+- El bot escribía `estado: 'PENDIENTE'`, fuera del vocabulario de la web.
 
-## Dónde se implementa
+La migración `0008` añade `descripcion`, `pilar`, `created_at` y `updated_at`,
+fija el `check` de estado y activa `REPLICA IDENTITY FULL`.
 
-- **Fase 1** — columnas nuevas, `tareas.pilar`, FKs y RLS por pilar.
-- **Fase 3** — la web filtra y muestra por área.
-- **Fase 5** — el bot: creación de categorías y foros, búsqueda en ambas
-  direcciones, y la corrección de `threadCreate.js`.
+## Estado de la implementación
+
+- **Hecho** — estructura en Discord (6 categorías con su foro), mapeo en
+  `pilares`, contrato de `tareas`, y el bot resolviendo el foro por área en
+  ambas direcciones vía `services/foros.js`.
+- **Fase 1** — RLS de `tareas` por pilar, con el caso `pilar is null` visible
+  para todos. Hoy la tabla tiene RLS activo y **cero políticas**, así que solo
+  `service_role` accede: el Realtime del Kanban no llega al navegador.
+- **Fase 3** — la web filtra y muestra por área, y añade el modelo temporal.

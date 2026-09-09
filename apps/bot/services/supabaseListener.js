@@ -1,5 +1,6 @@
 const { ChannelType } = require('discord.js');
 const supabase = require('../database');
+const { foroDeTarea, invalidar: invalidarForos } = require('./foros');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuración de etiquetas
@@ -81,11 +82,16 @@ async function handleTareaInsert(client, payload) {
         return;
     }
 
-    const { id, titulo, descripcion, etiquetas } = tarea;
-    const forumChannelId = process.env.FORUM_CHANNEL_ID;
+    const { id, titulo, descripcion, etiquetas, pilar } = tarea;
+
+    // Cada área tiene su foro de backlog; las tareas sin área van al general.
+    const forumChannelId = await foroDeTarea(pilar);
 
     if (!forumChannelId) {
-        console.error('[SupabaseListener] FORUM_CHANNEL_ID no está definido en .env');
+        console.error(
+            `[SupabaseListener] La tarea ID=${id} no tiene foro destino: ` +
+            `el área "${pilar ?? '(ninguna)'}" no tiene discord_forum_id y ` +
+            'GENERAL_FORUM_CHANNEL_ID no está configurado.');
         return;
     }
 
@@ -94,12 +100,12 @@ async function handleTareaInsert(client, payload) {
     try {
         forumChannel = await client.channels.fetch(forumChannelId);
     } catch (err) {
-        console.error(`[SupabaseListener] No se pudo obtener el foro ${forumChannelId}: ${err.message}`);
+        console.error(`[SupabaseListener] No se pudo obtener el foro ${forumChannelId} del área "${pilar ?? 'general'}": ${err.message}`);
         return;
     }
 
     if (forumChannel?.type !== ChannelType.GuildForum) {
-        console.warn('[SupabaseListener] El canal configurado en FORUM_CHANNEL_ID no es un ForumChannel.');
+        console.warn(`[SupabaseListener] El canal ${forumChannelId} del área "${pilar ?? 'general'}" no es un ForumChannel.`);
         return;
     }
 
@@ -367,6 +373,10 @@ function startSupabaseListener(client) {
             async (payload) => {
                 const tipo = payload.eventType;
                 try {
+                    // El mapa área → foro se cachea; cualquier cambio en el
+                    // catálogo lo deja obsoleto.
+                    invalidarForos();
+
                     if (tipo === 'INSERT') await handleRolePilarInsert(client, payload, 'pilares');
                     else if (tipo === 'UPDATE') await handleRolePilarUpdate(client, payload, 'pilares');
                     else if (tipo === 'DELETE') await handleRolePilarDelete(client, payload, 'pilares');

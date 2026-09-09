@@ -221,10 +221,41 @@ for (const pilar of pilares) {
   log('');
 }
 
+// ── Foro general ───────────────────────────────────────────────────────────
+// Vive fuera de las categorías por área y se crea a mano, pero necesita las
+// mismas etiquetas de estado que los demás: el listener las busca por nombre.
+const idGeneral = env.GENERAL_FORUM_CHANNEL_ID;
+log('▸ Foro general (tareas sin área)');
+if (!idGeneral) {
+  log('  · GENERAL_FORUM_CHANNEL_ID no está configurado en apps/bot/.env');
+} else {
+  const general = guild.channels.cache.get(idGeneral);
+  if (!general) {
+    log(`  ✗ el canal ${idGeneral} no existe en este servidor`);
+  } else if (general.type !== ChannelType.GuildForum) {
+    log(`  ✗ «${general.name}» no es un canal de foro`);
+  } else {
+    const faltantes = ETIQUETAS_ESTADO.filter(
+      (n) => !general.availableTags.some((t) => t.name.toLowerCase() === n.toLowerCase()));
+    if (!faltantes.length) {
+      log(`  · «${general.name}» ya tiene las etiquetas de estado`);
+    } else {
+      accion(`añadir etiquetas a «${general.name}»: ${faltantes.join(', ')}`);
+      if (APLICAR) {
+        // setAvailableTags reemplaza la lista entera: hay que conservar las
+        // etiquetas propias del equipo.
+        await general.setAvailableTags([
+          ...general.availableTags.map((t) => ({ id: t.id, name: t.name, moderated: t.moderated, emoji: t.emoji })),
+          ...faltantes.map((name) => ({ name, moderated: false })),
+        ]);
+      }
+    }
+  }
+}
+log('');
+
 log(APLICAR
   ? `Listo. ${creados} objeto(s) creados en Discord.`
   : 'Nada se ha modificado. Repite con --apply para ejecutar.');
-log('\nEl foro general (tareas sin área) se crea a mano y se configura en');
-log('GENERAL_FORUM_CHANNEL_ID — vive fuera de las categorías y lo ve todo el mundo.');
 
 await client.destroy();

@@ -1,5 +1,6 @@
 const { Events } = require('discord.js');
 const supabase = require('../database');
+const { pilarDeForo } = require('../services/foros');
 
 module.exports = {
     name: Events.ThreadCreate, // 'threadCreate'
@@ -10,24 +11,26 @@ module.exports = {
         // Ignorar hilos que existían antes de que el bot arrancara
         if (!newlyCreated) return;
 
-        // Filtrar: solo procesar posts del canal de foro configurado en .env
-        if (thread.parentId !== process.env.FORUM_CHANNEL_ID) return;
+        // El canal determina el área: cada pilar tiene su foro de backlog y las
+        // tareas sin área viven en el foro general (ver docs/discord-tareas.md).
+        const { gestionado, pilar } = await pilarDeForo(thread.parentId);
+        if (!gestionado) return;
 
         try {
             const { error } = await supabase
                 .from('tareas')
                 .insert({
-                    titulo:           thread.name,
-                    descripcion:      'Tarea creada automáticamente desde el foro.',
-                    id_discord_hilo:  thread.id,
-                    canal_id:         thread.parentId,
-                    creador_id:       thread.ownerId,
-                    estado:           'PENDIENTE',
+                    titulo:          thread.name,
+                    descripcion:     'Tarea creada automáticamente desde el foro.',
+                    id_discord_hilo: thread.id,
+                    autor_id:        thread.ownerId,
+                    pilar,
+                    estado:          'BACKLOG',
                 });
 
             if (error) throw error;
 
-            console.log(`[threadCreate] Tarea guardada desde foro → "${thread.name}" (ID: ${thread.id})`);
+            console.log(`[threadCreate] Tarea guardada desde el foro de "${pilar ?? 'general'}" → "${thread.name}" (ID: ${thread.id})`);
 
         } catch (err) {
             console.error('[threadCreate] Error al guardar tarea desde hilo de foro:', err);
