@@ -131,7 +131,9 @@ fija el `check` de estado y activa `REPLICA IDENTITY FULL`.
 - **Hecho** — estructura en Discord (6 categorías con su foro), mapeo en
   `pilares`, contrato de `tareas`, y el bot resolviendo el foro por área en
   ambas direcciones vía `services/foros.js`.
-- **Fase 1** — RLS de `tareas` por pilar, con el caso `pilar is null` visible
-  para todos. Hoy la tabla tiene RLS activo y **cero políticas**, así que solo
-  `service_role` accede: el Realtime del Kanban no llega al navegador.
+- **Hecho** — RLS de `tareas` por área (migración `0010`): la Directiva ve
+  todo, el resto su propia área, y las tareas sin área las ve todo el mundo.
+  Solo SELECT; las escrituras siguen pasando por Server Actions. Es lo que
+  devuelve la vida al Kanban en tiempo real, porque Supabase Realtime comprueba
+  RLS con el JWT del suscriptor y antes no entregaba nada al navegador.
 - **Fase 3** — la web filtra y muestra por área, y añade el modelo temporal.
