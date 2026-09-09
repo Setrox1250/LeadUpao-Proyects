@@ -19,6 +19,24 @@ Una categoría por pilar, con su foro de backlog dentro:
 La categoría puede contener otros canales del área (chat, voz). El bot solo
 gestiona el foro de tareas; el resto es del equipo.
 
+### Adopción de canales existentes
+
+Un área que ya tenía su espacio en Discord no recibe una estructura paralela:
+el script la **adopta** por id mediante el mapa `ADOPCION` de
+`scripts/bootstrap-discord-areas.mjs`, y **no la renombra**. El nombre canónico
+de la BD manda para los roles, pero un canal con historia y convenciones
+propias conserva el nombre que su equipo le puso. Los permisos sí se
+sincronizan, para que la Directiva tenga acceso.
+
+Así se resolvió `Área de Innovación Tecnológica`, que adopta
+`🚀 INNOVACIÓN TECNOLÓGICA` y su `🚀-backlog-tareas` —una categoría con canales
+de trabajo reales— en vez de duplicarla. Las etiquetas de estado se añaden
+conservando las que el equipo ya usaba.
+
+Los canales que el script llegó a crear y quedan sin referencia se listan al
+final de cada ejecución, para borrarlos a mano si se quiere. El script nunca
+los borra.
+
 ## Por qué el canal es el dato
 
 Hoy una tarea creada desde Discord no tiene forma de saber a qué área

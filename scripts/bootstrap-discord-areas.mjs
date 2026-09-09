@@ -47,6 +47,24 @@ const VINCULACION_INICIAL = {
   'Área de Innovación Tecnológica': 'Technological Innovation',
 };
 
+/**
+ * Adopción de canales que el equipo ya usaba.
+ *
+ * Algunas áreas tienen su espacio en Discord desde antes, con canales de
+ * trabajo y sus propias convenciones de nombre. En esos casos el script los
+ * ADOPTA por id en vez de crear una estructura paralela, y **no los renombra**:
+ * el nombre canónico de la BD manda para los roles, pero un canal con historia
+ * conserva el nombre que su equipo le puso.
+ *
+ * Los permisos sí se sincronizan, para que la Directiva tenga acceso.
+ */
+const ADOPCION = {
+  'Área de Innovación Tecnológica': {
+    categoria: '1510878279995883601',  // 🚀 INNOVACIÓN TECNOLÓGICA
+    foro:      '1510879369931915416',  // ├─🚀-backlog-tareas
+  },
+};
+
 const FORO = 'backlog-tareas';
 // Deben coincidir con ESTADO_TAG de apps/bot/services/supabaseListener.js
 const ETIQUETAS_ESTADO = ['En Progreso', 'Completado'];
@@ -117,6 +135,22 @@ log(`Servidor: ${guild.name}\n`);
 /** Devuelve el objeto si el id sigue existiendo en el servidor, si no null. */
 const vivo = (coleccion, id) => (id ? coleccion.cache.get(id) ?? null : null);
 
+/**
+ * Garantiza que un foro tenga las etiquetas de estado, conservando las que ya
+ * tuviera: setAvailableTags reemplaza la lista entera.
+ */
+async function asegurarEtiquetas(foro, sangria = '  ') {
+  const faltan = ETIQUETAS_ESTADO.filter(
+    (n) => !foro.availableTags.some((t) => t.name.toLowerCase() === n.toLowerCase()));
+  if (!faltan.length) return;
+  log(`${sangria}${APLICAR ? '✓' : '·'} añadir etiquetas de estado: ${faltan.join(', ')}${APLICAR ? '' : '  (simulado)'}`);
+  if (!APLICAR) return;
+  await foro.setAvailableTags([
+    ...foro.availableTags.map((t) => ({ id: t.id, name: t.name, moderated: t.moderated, emoji: t.emoji })),
+    ...faltan.map((name) => ({ name, moderated: false })),
+  ]);
+}
+
 let creados = 0;
 for (const pilar of pilares) {
   log(`▸ ${pilar.nombre}`);
@@ -154,12 +188,14 @@ for (const pilar of pilares) {
   ];
 
   // 2. Categoría del área
-  let categoria = vivo(guild.channels, pilar.discord_category_id)
+  const adoptada = ADOPCION[pilar.nombre] ?? null;
+  let categoria = (adoptada && guild.channels.cache.get(adoptada.categoria))
+    ?? vivo(guild.channels, pilar.discord_category_id)
     ?? guild.channels.cache.find(
       (c) => c.type === ChannelType.GuildCategory && c.name === pilar.nombre);
   if (categoria) {
-    log(`  · categoría ya existe (${categoria.id})`);
-    if (categoria.name !== pilar.nombre) {
+    log(`  · categoría ${adoptada ? `adoptada «${categoria.name}»` : 'ya existe'} (${categoria.id})`);
+    if (!adoptada && categoria.name !== pilar.nombre) {
       accion(`renombrar categoría «${categoria.name}» → «${pilar.nombre}»`);
       if (APLICAR) await categoria.setName(pilar.nombre, 'Nombre canónico desde Supabase');
     }
@@ -184,16 +220,18 @@ for (const pilar of pilares) {
   }
 
   // 3. Foro de backlog dentro de la categoría
-  let foro = vivo(guild.channels, pilar.discord_forum_id)
+  let foro = (adoptada && guild.channels.cache.get(adoptada.foro))
+    ?? vivo(guild.channels, pilar.discord_forum_id)
     ?? (categoria && guild.channels.cache.find(
       (c) => c.type === ChannelType.GuildForum &&
              c.name === FORO && c.parentId === categoria.id));
   if (foro) {
-    log(`  · foro ya existe (${foro.id})`);
-    if (foro.name !== FORO) {
+    log(`  · foro ${adoptada ? `adoptado «${foro.name}»` : 'ya existe'} (${foro.id})`);
+    if (!adoptada && foro.name !== FORO) {
       accion(`renombrar foro «${foro.name}» → «${FORO}»`);
       if (APLICAR) await foro.setName(FORO, 'Nombre canónico');
     }
+    await asegurarEtiquetas(foro);
   } else {
     accion(`crear foro «${FORO}» dentro de la categoría`);
     if (APLICAR && categoria) {
@@ -235,24 +273,35 @@ if (!idGeneral) {
   } else if (general.type !== ChannelType.GuildForum) {
     log(`  ✗ «${general.name}» no es un canal de foro`);
   } else {
-    const faltantes = ETIQUETAS_ESTADO.filter(
-      (n) => !general.availableTags.some((t) => t.name.toLowerCase() === n.toLowerCase()));
-    if (!faltantes.length) {
-      log(`  · «${general.name}» ya tiene las etiquetas de estado`);
-    } else {
-      accion(`añadir etiquetas a «${general.name}»: ${faltantes.join(', ')}`);
-      if (APLICAR) {
-        // setAvailableTags reemplaza la lista entera: hay que conservar las
-        // etiquetas propias del equipo.
-        await general.setAvailableTags([
-          ...general.availableTags.map((t) => ({ id: t.id, name: t.name, moderated: t.moderated, emoji: t.emoji })),
-          ...faltantes.map((name) => ({ name, moderated: false })),
-        ]);
-      }
-    }
+    log(`  · «${general.name}»`);
+    await asegurarEtiquetas(general, '      ');
   }
 }
 log('');
+
+// ── Canales que el script creó y ya nadie referencia ───────────────────────
+// Pasa cuando un área adopta canales preexistentes: los que se crearon antes
+// quedan sueltos. No se borran (regla de docs/discord-tareas.md); se listan
+// para que alguien decida a mano.
+const { data: pilActual } = await db.from('pilares')
+  .select('discord_category_id, discord_forum_id');
+const enUso = new Set(
+  (pilActual ?? []).flatMap((p) => [p.discord_category_id, p.discord_forum_id]).filter(Boolean));
+
+const sueltos = [...guild.channels.cache.values()].filter(
+  (c) => !enUso.has(c.id)
+      && ((c.type === ChannelType.GuildCategory && c.name.startsWith('Área'))
+       || (c.type === ChannelType.GuildForum && c.name === FORO)));
+
+if (sueltos.length) {
+  log('Creados por el script pero ya sin uso (bórralos a mano si quieres):');
+  for (const c of sueltos) {
+    const vacia = c.type === ChannelType.GuildCategory
+      && ![...guild.channels.cache.values()].some((x) => x.parentId === c.id);
+    log(`  · ${c.name}${vacia ? '  (categoría vacía)' : ''}`);
+  }
+  log('');
+}
 
 log(APLICAR
   ? `Listo. ${creados} objeto(s) creados en Discord.`
