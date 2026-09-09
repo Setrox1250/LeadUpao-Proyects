@@ -66,8 +66,10 @@ const ADOPCION = {
 };
 
 const FORO = 'backlog-tareas';
-// Deben coincidir con ESTADO_TAG de apps/bot/services/supabaseListener.js
-const ETIQUETAS_ESTADO = ['En Progreso', 'Completado'];
+// Deben coincidir con ESTADO_TAG de apps/bot/services/supabaseListener.js.
+// Cada tarea lleva siempre exactamente una: es lo que permite sincronizar con
+// foros configurados con «etiqueta obligatoria».
+const ETIQUETAS_ESTADO = ['Backlog', 'En Progreso', 'Completado'];
 
 // ── Entorno ────────────────────────────────────────────────────────────────
 function leerEnv(rel) {

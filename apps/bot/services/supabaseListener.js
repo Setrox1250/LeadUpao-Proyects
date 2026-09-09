@@ -1,4 +1,4 @@
-const { ChannelType } = require('discord.js');
+const { ChannelType, ChannelFlags } = require('discord.js');
 const supabase = require('../database');
 const { foroDeTarea, invalidar: invalidarForos } = require('./foros');
 
@@ -9,8 +9,25 @@ const { foroDeTarea, invalidar: invalidarForos } = require('./foros');
 // Sus nombres deben coincidir EXACTAMENTE con los del panel de Discord.
 // ──────────────────────────────────────────────────────────────────────────────
 const ESTADO_TAG = {
+    BACKLOG:     'Backlog',
     EN_PROGRESO: 'En Progreso',
     COMPLETADO:  'Completado',
+};
+
+// Mensaje y archivado por estado. BACKLOG no archiva: es trabajo pendiente.
+const ESTADO_EFECTO = {
+    BACKLOG: {
+        mensaje: '↩️ Esta tarea ha vuelto al backlog desde el panel web.',
+        archivar: false,
+    },
+    EN_PROGRESO: {
+        mensaje: "🔄 El estado de esta tarea ha sido cambiado a 'En Progreso' desde el panel web.",
+        archivar: false,
+    },
+    COMPLETADO: {
+        mensaje: "✅ Esta tarea ha sido marcada como 'Completada' desde el panel web. Sincronización finalizada.",
+        archivar: true,
+    },
 };
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -109,8 +126,21 @@ async function handleTareaInsert(client, payload) {
         return;
     }
 
-    // Resolver IDs de etiquetas por nombre (máx. 5 tags soportados por Discord)
-    const tagIds = resolveTagIds(forumChannel, etiquetas).slice(0, 5);
+    // La etiqueta del estado va primero: hay foros configurados con etiqueta
+    // obligatoria, donde crear un hilo sin ninguna falla con el error 40067.
+    const tagEstado = findTag(forumChannel, ESTADO_TAG[tarea.estado] ?? ESTADO_TAG.BACKLOG);
+    const tagIds = [
+        ...(tagEstado ? [tagEstado.id] : []),
+        ...resolveTagIds(forumChannel, etiquetas),
+    ].filter((id, i, todas) => todas.indexOf(id) === i).slice(0, 5);
+
+    if (!tagIds.length && forumChannel.flags?.has(ChannelFlags.RequireTag)) {
+        console.error(
+            `[SupabaseListener] El foro "${forumChannel.name}" exige etiqueta y no hay ninguna ` +
+            'aplicable. Ejecuta scripts/bootstrap-discord-areas.mjs --apply para crear las de estado.'
+        );
+        return;
+    }
 
     // Crear el hilo en el foro
     let thread;
@@ -176,48 +206,35 @@ async function handleTareaUpdate(client, payload) {
 
     await asegurarDesarchivado(thread);
 
-    if (estado === 'EN_PROGRESO') {
-        await aplicarEstadoEnProgreso(thread, forumChannel);
-    } else if (estado === 'COMPLETADO') {
-        await aplicarEstadoCompletado(thread, forumChannel);
+    await aplicarEstado(thread, forumChannel, estado);
+}
+
+/**
+ * Deja el hilo con exactamente una etiqueta de estado, conservando las demás.
+ * Los foros pueden exigir etiqueta obligatoria, así que el estado siempre pone
+ * una: es lo que permite que la sincronización funcione en esos foros.
+ */
+async function aplicarEstado(thread, forumChannel, estado) {
+    const efecto = ESTADO_EFECTO[estado];
+    if (!efecto) return;
+
+    const tag   = findTag(forumChannel, ESTADO_TAG[estado]);
+    const otras = sinEtiquetasDeEstado(thread, forumChannel);
+
+    if (!tag) {
+        console.warn(
+            `[SupabaseListener] El foro "${forumChannel.name}" no tiene la etiqueta ` +
+            `"${ESTADO_TAG[estado]}". Ejecuta scripts/bootstrap-discord-areas.mjs --apply.`
+        );
     }
+
+    await thread.setAppliedTags(tag ? [...otras, tag.id].slice(0, 5) : otras);
+    await thread.send(efecto.mensaje);
+    if (efecto.archivar) await thread.setArchived(true);
+
+    console.log(`[SupabaseListener] Hilo "${thread.name}" → ${estado}${efecto.archivar ? ' y archivado' : ''}.`);
 }
 
-async function aplicarEstadoEnProgreso(thread, forumChannel) {
-    const tag            = findTag(forumChannel, ESTADO_TAG.EN_PROGRESO);
-    const baseEtiquetas  = sinEtiquetasDeEstado(thread, forumChannel);
-    const nuevasEtiquetas = tag ? [...baseEtiquetas, tag.id] : baseEtiquetas;
-
-    await thread.setAppliedTags(nuevasEtiquetas);
-    await thread.send("🔄 El estado de esta tarea ha sido cambiado a 'En Progreso' desde el panel web.");
-    console.log(`[SupabaseListener] Hilo "${thread.name}" → EN_PROGRESO.`);
-}
-
-async function aplicarEstadoCompletado(thread, forumChannel) {
-    const tag             = findTag(forumChannel, ESTADO_TAG.COMPLETADO);
-    const baseEtiquetas   = sinEtiquetasDeEstado(thread, forumChannel);
-    const nuevasEtiquetas = tag ? [...baseEtiquetas, tag.id] : baseEtiquetas;
-
-    await thread.setAppliedTags(nuevasEtiquetas);
-    await thread.send(
-        "✅ Esta tarea ha sido marcada como 'Completada' desde el panel web. " +
-        'Sincronización finalizada.'
-    );
-    await thread.setArchived(true);
-    console.log(`[SupabaseListener] Hilo "${thread.name}" → COMPLETADO y archivado.`);
-}
-
-// ──────────────────────────────────────────────────────────────────────────────
-// Handler: DELETE — Tarea eliminada desde la web
-//
-// PREREQUISITO DE BASE DE DATOS:
-// Para que payload.old contenga el id_discord_hilo (y no solo el id primario),
-// la tabla 'tareas' debe tener REPLICA IDENTITY FULL. Ejecuta en Supabase SQL:
-//
-//   ALTER TABLE tareas REPLICA IDENTITY FULL;
-//
-// Sin esto, payload.old solo contiene el campo 'id' y no se puede encontrar el hilo.
-// ──────────────────────────────────────────────────────────────────────────────
 async function handleTareaDelete(client, payload) {
     const tareaEliminada = payload.old;
     const threadId       = tareaEliminada?.id_discord_hilo;

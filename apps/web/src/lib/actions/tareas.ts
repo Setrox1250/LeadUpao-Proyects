@@ -41,6 +41,8 @@ export async function crearTarea(input: {
       pilar,
       etiquetas:   input.etiquetas,
       estado:      'BACKLOG',
+      // Queda null si quien la crea aún no ha vinculado su Discord.
+      autor_id:    perfil.discord_id ?? null,
     })
     .select('*')
     .single()
