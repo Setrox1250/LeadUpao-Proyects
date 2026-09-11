@@ -155,9 +155,9 @@ async function handleTareaInsert(client, payload) {
         return;
     }
 
-    // Guardar el id del hilo recién creado en Supabase
-    // Este UPDATE dispara otro evento Realtime, pero el handler de UPDATE
-    // lo ignora porque el estado 'BACKLOG' no tiene acción Discord definida.
+    // Guardar el id del hilo recién creado en Supabase.
+    // Este UPDATE dispara otro evento Realtime; handleTareaUpdate lo descarta
+    // porque el estado no cambió (ver la guarda de ese handler).
     const { error: updateError } = await supabase
         .from('tareas')
         .update({ id_discord_hilo: thread.id })
@@ -175,11 +175,40 @@ async function handleTareaInsert(client, payload) {
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Handler: UPDATE — Tarea editada desde la web (cambio de estado)
+//
+// Ojo: este handler recibe CUALQUIER update de la fila, no solo los de estado.
 // ──────────────────────────────────────────────────────────────────────────────
 async function handleTareaUpdate(client, payload) {
     const tarea    = payload.new;
     const threadId = tarea.id_discord_hilo;
     const estado   = tarea.estado;
+
+    // Solo actuar cuando el estado CAMBIA de verdad.
+    //
+    // Sin esta guarda, cualquier escritura sobre la fila se interpretaba como
+    // un cambio de estado y publicaba su mensaje en el hilo. Dos casos reales:
+    //
+    //   · handleTareaInsert escribe `id_discord_hilo` justo después de crear
+    //     el hilo. Ese UPDATE volvía aquí con estado 'BACKLOG' y publicaba
+    //     "↩️ Esta tarea ha vuelto al backlog desde el panel web" en un hilo
+    //     recién nacido. El comentario de handleTareaInsert afirmaba que el
+    //     handler lo ignoraba; no era cierto, porque ESTADO_TAG.BACKLOG existe.
+    //
+    //   · editar la fecha de entrega desde el panel anunciaría un cambio de
+    //     estado que nunca ocurrió, y volvería a archivar una tarea completada.
+    //
+    // `payload.old` trae la fila anterior completa gracias a REPLICA IDENTITY
+    // FULL (migración 0008). Si algún día dejara de estarlo, `old.estado` sería
+    // undefined y el evento pasaría igual: ante la duda, mejor un mensaje de
+    // más que perder una sincronización real.
+    const estadoAnterior = payload.old?.estado;
+    if (estadoAnterior !== undefined && estadoAnterior === estado) {
+        console.log(
+            `[SupabaseListener] UPDATE en tarea ID=${tarea.id} sin cambio de estado ` +
+            `(sigue en ${estado}): sin acción en Discord.`
+        );
+        return;
+    }
 
     // Sin hilo asociado: tarea creada manualmente en la BD o aún sin sincronizar
     if (!threadId) {
