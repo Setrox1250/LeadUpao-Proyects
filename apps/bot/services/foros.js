@@ -11,6 +11,10 @@ const supabase = require('../database');
  * GENERAL_FORUM_CHANNEL_ID.
  */
 
+// Etiqueta con la que se ofrece "ninguna área" en los comandos. No es un
+// nombre de pilar: representa `pilar = NULL`, el backlog general.
+const SIN_AREA = 'General (sin área)';
+
 // El mapa cambia solo cuando se da de alta o se renombra un área, así que se
 // cachea y se refresca por TTL. `invalidar()` lo fuerza desde el listener.
 const TTL_MS = 5 * 60 * 1000;
@@ -22,22 +26,26 @@ async function mapa() {
 
     const { data, error } = await supabase
         .from('pilares')
-        .select('nombre, discord_forum_id');
+        .select('nombre, discord_forum_id')
+        .order('orden');
 
     if (error) {
         console.error('[Foros] No se pudo leer `pilares`:', error.message);
-        return cache ?? { porPilar: new Map(), porForo: new Map() };
+        return cache ?? { porPilar: new Map(), porForo: new Map(), nombres: [] };
     }
 
     const porPilar = new Map();
     const porForo  = new Map();
+    // Todas las áreas, tengan foro o no: una recién creada aún no lo tiene,
+    // y aun así es un destino válido para una tarea (irá al foro general).
+    const nombres  = data.map(p => p.nombre);
     for (const { nombre, discord_forum_id: foro } of data) {
         if (!foro) continue;
         porPilar.set(nombre, foro);
         porForo.set(foro, nombre);
     }
 
-    cache = { porPilar, porForo };
+    cache = { porPilar, porForo, nombres };
     cargadoEn = Date.now();
     return cache;
 }
@@ -75,9 +83,15 @@ async function pilarDeForo(canalId) {
     return pilar ? { gestionado: true, pilar } : { gestionado: false };
 }
 
+/** Nombres de área del catálogo, en el orden del organigrama. */
+async function areasDisponibles() {
+    const { nombres } = await mapa();
+    return nombres ?? [];
+}
+
 function invalidar() {
     cache = null;
     cargadoEn = 0;
 }
 
-module.exports = { foroDeTarea, pilarDeForo, foroGeneral, invalidar };
+module.exports = { foroDeTarea, pilarDeForo, foroGeneral, areasDisponibles, invalidar, SIN_AREA };
