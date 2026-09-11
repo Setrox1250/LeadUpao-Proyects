@@ -10,7 +10,11 @@ type RegistrarAuditoriaInput = {
   actorNombre: string
   accion:      string
   entidad:     string
-  entidadId?:  string | null
+  // `logs_auditoria.entidad_id` es texto a propósito: apunta a cuatro tablas
+  // con dos tipos de clave distintos (`tareas` y `miembros` en bigint,
+  // `roles` y `pilares` en uuid). Se acepta number porque eso es lo que
+  // devuelve Supabase para una clave bigint.
+  entidadId?:  string | number | null
   detalles?:   Record<string, unknown>
 }
 
@@ -25,7 +29,7 @@ export async function registrarAuditoria(input: RegistrarAuditoriaInput) {
     actor_nombre: input.actorNombre,
     accion:       input.accion,
     entidad:      input.entidad,
-    entidad_id:   input.entidadId ?? null,
+    entidad_id:   input.entidadId == null ? null : String(input.entidadId),
     detalles:     input.detalles ?? {},
   })
 

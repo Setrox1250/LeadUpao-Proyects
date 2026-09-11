@@ -72,7 +72,8 @@ export interface PilarStat {
 // Entrada del historial de auditoría (tabla logs_auditoria)
 export interface LogAuditoria {
   id:           string
-  actor_id:     string | null
+  // `miembros.id` es bigint, así que llega como número.
+  actor_id:     number | null
   actor_nombre: string
   accion:       string
   entidad:      string
