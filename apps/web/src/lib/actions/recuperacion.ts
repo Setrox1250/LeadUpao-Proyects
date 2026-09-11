@@ -91,6 +91,32 @@ export async function solicitarRecuperacion(
   // randomInt del módulo crypto, no Math.random: esto es una credencial.
   const codigo = String(randomInt(0, 1_000_000)).padStart(6, '0')
 
+  // ─── PRIMERO SE ENTREGA, DESPUÉS SE GUARDA ───────────────────────────────
+  //
+  // El orden inverso deja a la persona PEOR que antes de pedirlo. Guardar el
+  // hash invalida el código anterior; si el envío falla después, se queda sin
+  // el nuevo (que nunca recibió) y sin el viejo (que acaba de destruirse).
+  //
+  // Pasó en producción el 2026-09-11: alguien con un código válido en su
+  // bandeja pulsó "pedir otro", el envío falló porque faltaba DISCORD_BOT_URL,
+  // y perdió los dos.
+  //
+  // Así, un envío fallido no cuesta nada: el anterior sigue sirviendo.
+  const envio = await enviarCodigoRecuperacion(
+    miembro.discord_id,
+    codigo,
+    miembro.nombre_completo.split(' ')[0],
+    VIGENCIA_MINUTOS,
+  )
+
+  if (!envio.ok) {
+    // La respuesta no se distingue del caso feliz: decir "no pudimos
+    // enviártelo" confirmaría que el código de miembro existe. Queda en el log,
+    // y la pantalla ya explica los dos motivos que la persona puede resolver.
+    console.error(`[recuperacion] No se pudo enviar el código: ${envio.aviso}`)
+    return { mensaje: RESPUESTA_GENERICA }
+  }
+
   const { error } = await admin
     .from('miembros')
     .update({
@@ -101,21 +127,10 @@ export async function solicitarRecuperacion(
     .eq('id', miembro.id)
 
   if (error) {
-    console.error('[recuperacion] No se pudo guardar el código:', error.message)
-    return { mensaje: '', error: 'No se pudo iniciar la recuperación. Inténtalo más tarde.' }
-  }
-
-  const envio = await enviarCodigoRecuperacion(
-    miembro.discord_id,
-    codigo,
-    miembro.nombre_completo.split(' ')[0],
-    VIGENCIA_MINUTOS,
-  )
-
-  if (!envio.ok) {
-    // No se distingue del caso feliz a propósito. El motivo más común es tener
-    // cerrados los mensajes directos, y eso ya se explica en la pantalla.
-    console.error(`[recuperacion] No se pudo enviar el código: ${envio.aviso}`)
+    // Enviado pero sin guardar: el código del mensaje no funcionará. Es la
+    // única ventana mala que queda, y se resuelve pidiendo otro.
+    console.error('[recuperacion] Código enviado pero NO guardado:', error.message)
+    return { mensaje: '', error: 'No se pudo completar la solicitud. Pide el código otra vez.' }
   }
 
   return { mensaje: RESPUESTA_GENERICA }
