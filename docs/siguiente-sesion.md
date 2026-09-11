@@ -1,82 +1,90 @@
-# Continuación: propuestas del bot y del producto
+# Continuación: el circuito de tareas, cerrado y verificado
 
-Estado al cerrar la sesión del 2026-09-10. El rediseño del tablero está hecho;
-lo que queda son decisiones, no trabajo pendiente de una tarea empezada.
+Estado al cerrar la sesión del 2026-09-10/11. El tablero está rediseñado y el
+circuito web ↔ Discord funciona en las dos direcciones, probado de extremo a
+extremo contra producción.
 
-## Lo que se hizo
+## Lo que quedó funcionando
 
-El tablero de tareas (`apps/web/src/components/admin/`) resuelve los cinco
-problemas que dejó la sesión anterior: el área es un filtro con «todas» por
-defecto, las tareas generales (`pilar is null`) ya aparecen, cada columna
-tiene su scroll, hay búsqueda y filtros, y `fecha_vencimiento` se ve, se
-ordena y se edita.
+El tablero (`apps/web/src/components/admin/`) resuelve los cinco problemas del
+traspaso anterior: área como filtro con «todas» por defecto, tareas generales
+visibles, scroll por columna, búsqueda y filtros, y `fecha_vencimiento`
+expuesta, ordenable y editable en el sitio.
 
-Dos hallazgos salieron probándolo en el navegador, no leyendo el código: una
-tarea completada seguía anunciándose como vencida, y el editor de fecha
-guardaba en cada `change`, así que teclear la fecha a mano mandaba a la base
-un año `0002`. Ambos corregidos.
+Verificado en el servidor real, no razonado: creación web → hilo con etiqueta y
+fecha; estado web → etiqueta en Discord; **etiqueta en Discord → tablero**;
+cambio de fecha anunciado en el hilo; borrado → hilo bloqueado y archivado; y
+la auditoría registrando por primera vez desde que existe el proyecto.
 
-La regla de permisos sobre tareas vive ahora en un solo sitio
-(`lib/actions/tareas.ts`), porque las tareas sin área obligaron a decidir
-explícitamente quién las mueve: antes la comparación `perfil.pilar ===
-tarea.pilar` se las concedía por coincidencia de NULLs a quien no tiene área.
+## Los dos hallazgos que costaron la sesión
 
-`lib/fechas.ts` concentra el manejo de fechas de calendario, con nueve pruebas
-que corren en `npm run check` bajo zonas de UTC-11 a UTC+14.
+Ninguno se veía leyendo el código. Los dos fallaban **en silencio**, sin
+excepción y sin log, y los dos aparecieron probando de verdad.
 
-## Verificado contra producción
+### 1. `REPLICA IDENTITY FULL` nunca se aplicó
 
-La base estuvo caída media sesión con `544 DatabaseTimeout`: consultas al
-catálogo del sistema, sin tocar ninguna tabla, tardaban 11-14 segundos. No era
-el esquema ni una consulta lenta, era la instancia sin CPU. Al volver:
+La migración `0008` la declara, pero está en sus últimas líneas y ese archivo
+quedó truncado a una línea en el commit `9385912`, restaurado en `33682df`. Lo
+que se pegó en el SQL editor fue la versión corta. Verificado:
+`relreplident = 'd'`.
 
-- **Migración `0011` aplicada.** `tareas.fecha_vencimiento` existe y es un
-  `date` de verdad: rechaza `2026-02-31` y `manzana`.
-- **Migración `0010` aplicada.** `anon` tiene revocado el SELECT sobre
-  `tareas`, que es lo que hace esa migración.
-- La consulta `or=(pilar.is.null,pilar.eq."Área Académica")` responde 200 con
-  tildes y espacios en el nombre.
-- Seis áreas con rol, categoría y foro de Discord vinculados; ocho cargos con
-  su `discord_role_id`.
-- `logs_auditoria` devuelve 404: no existe.
-- `tareas` está vacía, 0 filas.
+Sin ella, Postgres solo publica la clave primaria en el registro anterior de
+cada evento, y el bot compara anterior contra nuevo en cinco sitios. Los cinco
+concluían «no cambió nada» y no hacían nada. Lo arregla la migración `0013`,
+que cubre `tareas`, `roles` y `pilares`.
 
-## Lo que sigue sin probarse de extremo a extremo
+### 2. Realtime recorta el registro anterior de los `DELETE` con RLS
 
-El circuito completo con Discord. Cualquier INSERT en `tareas` abre un hilo
-real en un foro del servidor, así que la prueba quedó aplazada a propósito.
-Cuando se haga, la secuencia es: crear con fecha → ver el hilo con su etiqueta
-→ cambiar el estado desde la web → ver la etiqueta cambiar en Discord →
-borrar.
+Medido: en el mismo evento, `payload.old.id` vale 15 y
+`payload.old.id_discord_hilo` es `undefined`. Supabase no puede evaluar la
+política sobre una fila que ya no existe, así que manda solo la clave primaria.
+**`relreplident` no influye**: con la identidad en `full` los `UPDATE` llegan
+completos y los `DELETE` siguen llegando pelados.
 
-## Las quince decisiones abiertas
+No hay migración que lo arregle y quitar RLS de `tareas` sería volver al
+incidente P0. Por eso el borrado es la única parte del circuito que no viaja
+por Realtime: `eliminarTarea` lee el `id_discord_hilo` antes de borrar y se lo
+manda al bot por `POST /api/tarea-cerrada`. Ver `docs/discord-tareas.md`.
 
-Están en el artefacto de la sesión, con el detalle y la recomendación de cada
-una. Resumen por si el enlace se pierde:
+## Migraciones aplicadas en esta sesión
 
-**Ya resueltas** — 1) la guarda de «el estado no cambió» en el listener.
-2) `/tarea-crear` rehecho, con área por autocompletado y fecha.
-3) `isFounder` comparaba cargos en inglés y tenía a los siete miembros fuera
-de Configuración. 8) `threadCreate` ya guarda el primer mensaje del hilo como
-descripción.
+`0011` (fecha de vencimiento), `0012` (`logs_auditoria` con los tipos reales) y
+`0013` (identidad de réplica). Las tres verificadas contra la base después.
 
-**Sigue roto** — 4) la auditoría no guarda nada porque `logs_auditoria` no
-existe, y la migración `0001` no puede aplicarse tal cual: declara
-`actor_id uuid` contra `miembros.id bigint`.
+## Trampas operativas que conviene recordar
 
-**Bot, sin decidir** — 5) dónde va la fecha de entrega en Discord; hoy cambia
-en silencio. 6) recordatorios de vencimiento. 7) `threadUpdate` para que el
-estado vuelva de Discord a la web. 9) `/mis-tareas` depende de
-`responsable_id`. 10) borrar un pilar borra el rol de Discord, contra lo que
-dice `docs/discord-tareas.md`.
+- **Tocar la publicación de Realtime obliga a reiniciar a los suscriptores.**
+  Al aplicar la `0013`, el bot dejó de recibir eventos hasta que se reinició.
+  No dio ningún error: simplemente dejó de sincronizar.
+- **Un handler de evento que lanza puede tumbar el bot.** `index.js` registra
+  los eventos sin `try/catch` ni `.catch()`, así que un rechazo no capturado en
+  un `execute` async termina el proceso. No ha pasado, pero está a un error de
+  distancia.
+- **La base estuvo caída media sesión** con `544 DatabaseTimeout`: consultas al
+  catálogo del sistema, sin tocar tablas, tardaban 11-14 segundos. No era el
+  esquema, era la instancia sin CPU.
 
-**Producto** — 11) registrar cuentas de la organización sin contraseñas.
-12) catálogo de recursos con responsable y última revisión. 13) traspaso al
-irse alguien. 14) `tareas.responsable_id`. 15) el panel del Presidente debería
-responder «qué necesita atención», no «cómo vamos».
+## Consecuencia de permisos que hay que decidir
 
-El ítem 1 era requisito de los ítems 5 y 7, y ya está dentro. El 14 desbloquea
-el 9, el 6 y la mitad del 13.
+Editar las etiquetas de un post ajeno en Discord exige `ManageThreads`, que
+está en los presets `staff` y `admin` pero **no en `member`**. Como los hilos
+de las tareas creadas desde la web pertenecen al bot, **un miembro raso no
+puede moverlas de columna desde el foro**. Sí puede con las que abra él mismo.
+O se le concede el permiso en los foros de tareas, o se asume que el camino de
+vuelta es para líderes.
+
+## Lo que sigue abierto
+
+- **Recordatorios de vencimiento.** Necesita una columna de idempotencia
+  (`tareas.recordatorio_enviado_en`) y decidir dónde se avisa. Ojo con que el
+  servicio de Render no se duerma.
+- **`tareas.responsable_id`.** Lo que más falta: hoy una tarea es de un área,
+  no de una persona. Desbloquea `/mis-tareas`, los recordatorios dirigidos y la
+  mitad del traspaso de responsabilidades.
+- **Producto**: registro de cuentas de la organización **sin contraseñas**,
+  catálogo de recursos con responsable y última revisión, traspaso al irse
+  alguien, y un panel de Presidencia que responda «qué necesita atención» en
+  vez de «cómo vamos».
 
 ## Pendientes que no son de producto
 
@@ -88,7 +96,9 @@ el 9, el 6 y la mitad del 13.
 - Desactivar las claves JWT heredadas en Supabase. Las apps ya usan las nuevas
   (`sb_publishable_` / `sb_secret_`), así que no se rompe nada al hacerlo.
 - `DISCORD_GUILD_ID` en Vercel: sin él, el tablero muestra el icono del hilo
-  sin enlace. Es opcional y degrada solo.
+  sin enlace. Opcional y degrada solo.
 - Sin verificar en real: el banner de bienvenida y `/verificar`.
+- **Hilos huérfanos de las pruebas** en `🚀-backlog-tareas`. El bot no borra
+  hilos por diseño; hay que quitarlos a mano.
 - Sueltos en Discord: la categoría `Área de Innovación Tecnológica` vacía y su
   foro, que el script lista en cada ejecución y nunca borra.
