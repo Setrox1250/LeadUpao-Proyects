@@ -16,53 +16,22 @@ fecha; estado web → etiqueta en Discord; **etiqueta en Discord → tablero**;
 cambio de fecha anunciado en el hilo; borrado → hilo bloqueado y archivado; y
 la auditoría registrando por primera vez desde que existe el proyecto.
 
-## Los dos hallazgos que costaron la sesión
+## Qué pasó y qué se aprendió
 
-Ninguno se veía leyendo el código. Los dos fallaban **en silencio**, sin
-excepción y sin log, y los dos aparecieron probando de verdad.
+Está en [`bitacora-2026-09-11.md`](bitacora-2026-09-11.md): lo realizado y, más
+importante, los dos fallos de sincronización que llevaban semanas activos sin
+que nadie lo supiera. Los dos fallaban en silencio y ninguno era visible
+leyendo el código.
 
-### 1. `REPLICA IDENTITY FULL` nunca se aplicó
+En una línea cada uno, por si no abres el documento:
 
-La migración `0008` la declara, pero está en sus últimas líneas y ese archivo
-quedó truncado a una línea en el commit `9385912`, restaurado en `33682df`. Lo
-que se pegó en el SQL editor fue la versión corta. Verificado:
-`relreplident = 'd'`.
-
-Sin ella, Postgres solo publica la clave primaria en el registro anterior de
-cada evento, y el bot compara anterior contra nuevo en cinco sitios. Los cinco
-concluían «no cambió nada» y no hacían nada. Lo arregla la migración `0013`,
-que cubre `tareas`, `roles` y `pilares`.
-
-### 2. Realtime recorta el registro anterior de los `DELETE` con RLS
-
-Medido: en el mismo evento, `payload.old.id` vale 15 y
-`payload.old.id_discord_hilo` es `undefined`. Supabase no puede evaluar la
-política sobre una fila que ya no existe, así que manda solo la clave primaria.
-**`relreplident` no influye**: con la identidad en `full` los `UPDATE` llegan
-completos y los `DELETE` siguen llegando pelados.
-
-No hay migración que lo arregle y quitar RLS de `tareas` sería volver al
-incidente P0. Por eso el borrado es la única parte del circuito que no viaja
-por Realtime: `eliminarTarea` lee el `id_discord_hilo` antes de borrar y se lo
-manda al bot por `POST /api/tarea-cerrada`. Ver `docs/discord-tareas.md`.
-
-## Migraciones aplicadas en esta sesión
-
-`0011` (fecha de vencimiento), `0012` (`logs_auditoria` con los tipos reales) y
-`0013` (identidad de réplica). Las tres verificadas contra la base después.
-
-## Trampas operativas que conviene recordar
-
-- **Tocar la publicación de Realtime obliga a reiniciar a los suscriptores.**
-  Al aplicar la `0013`, el bot dejó de recibir eventos hasta que se reinició.
-  No dio ningún error: simplemente dejó de sincronizar.
-- **Un handler de evento que lanza puede tumbar el bot.** `index.js` registra
-  los eventos sin `try/catch` ni `.catch()`, así que un rechazo no capturado en
-  un `execute` async termina el proceso. No ha pasado, pero está a un error de
-  distancia.
-- **La base estuvo caída media sesión** con `544 DatabaseTimeout`: consultas al
-  catálogo del sistema, sin tocar tablas, tardaban 11-14 segundos. No era el
-  esquema, era la instancia sin CPU.
+- **`REPLICA IDENTITY FULL` nunca se aplicó**, porque la sentencia estaba en
+  las últimas líneas de un archivo que llegó truncado al SQL editor. Una
+  migración escrita no es una migración aplicada: hay que comprobarla contra la
+  base.
+- **Realtime recorta el registro anterior de los `DELETE` en tablas con RLS.**
+  No lo arregla ninguna migración. Cualquier acción que dependa de datos de una
+  fila borrada tiene que leerlos antes de borrar y mandarlos explícitamente.
 
 ## Decidido: el miembro raso usa la web, no el foro
 
@@ -103,13 +72,14 @@ una persona en vez de a un canal, y la mitad del traspaso de responsabilidades.
 
 ## Pendientes que no son de producto
 
-- **Higiene de credenciales: hay trabajo pendiente y NO se detalla aquí.**
-  Incluye rotaciones, limpieza de un repositorio y retirada de claves
-  heredadas. Este repositorio es público, así que enumerar qué está expuesto y
-  dónde mientras sigue expuesto solo sirve a quien busca. La lista vive en el
-  canal privado del equipo; el orden importa y está anotado allí.
-- Desactivar las claves JWT heredadas en Supabase. Las apps ya usan las nuevas
-  (`sb_publishable_` / `sb_secret_`), así que no se rompe nada al hacerlo.
+- **Higiene de credenciales.** La rotación abierta en esta sesión queda hecha
+  al cerrarla. Sigue habiendo deuda heredada —limpieza de un repositorio y
+  retirada de claves antiguas— y **no se detalla aquí**: este repositorio es
+  público, y enumerar qué está expuesto mientras sigue expuesto solo sirve a
+  quien lo busca. La lista vive en el canal privado del equipo, con su orden.
+- **Arreglar el arranque del bot** para que un handler que lanza no termine el
+  proceso: `index.js` registra los eventos sin `try/catch` ni `.catch()`. No ha
+  pasado nunca, pero está a un error de distancia (bitácora, hallazgo 4).
 - `DISCORD_GUILD_ID` en Vercel: sin él, el tablero muestra el icono del hilo
   sin enlace. Opcional y degrada solo.
 - Sin verificar en real: el banner de bienvenida y `/verificar`.
