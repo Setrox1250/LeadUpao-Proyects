@@ -1,7 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { getMiembroPerfil } from '@/lib/miembro'
+import { getMiembroPerfil, ErrorDeConfiguracion } from '@/lib/miembro'
 import DiscordLoginButton from '@/components/auth/DiscordLoginButton'
 import CodeLoginForm from '@/components/auth/CodeLoginForm'
 
@@ -17,6 +17,10 @@ const ERROR_MESSAGES: Record<string, string> = {
   pending_approval: 'Tu registro está pendiente de aprobación por un administrador.',
   login_failed:     'No se pudo iniciar sesión. Inténtalo de nuevo o contacta a un administrador.',
   auth_failed:      'No se pudo completar el inicio de sesión con Discord. Inténtalo de nuevo.',
+  // Deliberadamente distinto de `not_registered`: aquí el problema es del
+  // servidor, y decir "no estás registrado" manda a pedir un acceso que ya se
+  // tiene. La causa habitual es una clave de Supabase caducada en el entorno.
+  config_error:     'Hay un problema de configuración en el servidor, no con tu cuenta. Avisa al área de TI: el panel no puede consultar la lista de miembros.',
 }
 
 export default async function LoginPage({
@@ -29,8 +33,15 @@ export default async function LoginPage({
 
   if (user) {
     const discordId = user.user_metadata?.provider_id ?? null
-    const miembro = await getMiembroPerfil(user.id, discordId)
-    if (miembro) redirect('/admin')
+    try {
+      const miembro = await getMiembroPerfil(user.id, discordId)
+      if (miembro) redirect('/admin')
+    } catch (err) {
+      // Esta es la pantalla a la que todo lo demás redirige cuando falla: si
+      // ella también revienta, no queda ningún sitio donde leer el motivo.
+      if (!(err instanceof ErrorDeConfiguracion)) throw err
+      console.error(`[login] ${err.message}`)
+    }
   }
 
   const errorMsg = searchParams.error

@@ -7,7 +7,7 @@ import KpiCards            from '@/components/admin/KpiCards'
 import PillarChart         from '@/components/admin/PillarChart'
 import AuditLogTable        from '@/components/admin/AuditLogTable'
 import ConfiguracionPanel   from '@/components/admin/ConfiguracionPanel'
-import { getMiembroPerfil } from '@/lib/miembro'
+import { getMiembroPerfil, ErrorDeConfiguracion } from '@/lib/miembro'
 import { isAdmin as checkIsAdmin, isStaff as checkIsStaff, isFounder as checkIsFounder, getCargoLabel } from '@/lib/auth'
 import { obtenerLogsAuditoria } from '@/lib/actions/auditoria'
 import { obtenerRoles } from '@/lib/actions/roles'
@@ -34,7 +34,15 @@ export default async function AdminPage({
   const discordId = user.user_metadata?.provider_id ?? null
 
   // ── 2. Perfil del usuario logueado en la tabla miembros ──────────────────
-  const perfil = await getMiembroPerfil(user.id, discordId)
+  let perfil
+  try {
+    perfil = await getMiembroPerfil(user.id, discordId)
+  } catch (err) {
+    // Que la consulta no se pueda hacer no significa que no estés registrado.
+    if (!(err instanceof ErrorDeConfiguracion)) throw err
+    console.error(`[admin] ${err.message}`)
+    redirect('/?error=config_error')
+  }
 
   // El registro de nuevos miembros es solo por administrador
   if (!perfil) redirect('/?error=not_registered')
