@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { useFormStatus } from 'react-dom'
 import { loginWithCode } from '@/app/login-actions'
 
@@ -65,6 +66,17 @@ export default function CodeLoginForm() {
       </div>
 
       <SubmitButton />
+
+      {/*
+        Faltaba por completo: quien olvidaba la contraseña se quedaba fuera,
+        porque las dos pantallas que la cambian viven DENTRO del panel.
+      */}
+      <Link
+        href="/recuperar"
+        className="block text-center text-blue-200 hover:text-white text-xs transition-colors"
+      >
+        ¿Olvidaste tu contraseña?
+      </Link>
     </form>
   )
 }

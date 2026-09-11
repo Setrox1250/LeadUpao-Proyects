@@ -118,6 +118,47 @@ function autorizado(req) {
 }
 
 // ──────────────────────────────────────────────────────────────────────────
+// Código de recuperación de contraseña por mensaje directo
+//
+// El endpoint es ESTRECHO a propósito: recibe un id de Discord y un código, y
+// el bot compone el mensaje. No acepta texto libre. Un "manda este texto a
+// quien yo te diga" convertiría un fallo en la web en un canal para escribir
+// a cualquiera del servidor en nombre de LEAD.
+// ──────────────────────────────────────────────────────────────────────────
+app.post('/api/codigo-recuperacion', async (req, res) => {
+    if (!autorizado(req)) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid or missing token' });
+    }
+
+    const { discord_id: discordId, codigo, nombre, minutos } = req.body ?? {};
+
+    if (!discordId || typeof discordId !== 'string' || !/^\d{4,}$/.test(discordId)) {
+        return res.status(400).json({ error: 'discord_id inválido' });
+    }
+    if (!codigo || !/^\d{6}$/.test(String(codigo))) {
+        return res.status(400).json({ error: 'codigo inválido' });
+    }
+
+    try {
+        const usuario = await client.users.fetch(discordId);
+        await usuario.send(
+            `Hola${nombre ? ` ${nombre}` : ''} 👋\n\n` +
+            `Tu código para restablecer la contraseña del panel de LEAD UPAO es:\n\n` +
+            `## ${codigo}\n\n` +
+            `Caduca en ${Number(minutos) || 15} minutos y solo sirve una vez.\n\n` +
+            '**Si no has pedido tú este código, ignóralo y avisa a la Directiva.** ' +
+            'Nadie de LEAD te lo va a pedir por mensaje: solo se escribe en el panel.'
+        );
+        console.log(`[API codigo-recuperacion] Código enviado por MD a ${discordId}.`);
+        return res.json({ success: true });
+    } catch (err) {
+        // Lo más común: el usuario tiene cerrados los mensajes directos.
+        console.error(`[API codigo-recuperacion] No se pudo enviar el MD a ${discordId}:`, err.message);
+        return res.status(502).json({ error: 'No se pudo enviar el mensaje directo', detalles: err.message });
+    }
+});
+
+// ──────────────────────────────────────────────────────────────────────────
 // Cierre del hilo de una tarea eliminada
 //
 // Lo pide la web en vez de deducirlo de Realtime, y no por gusto: Supabase

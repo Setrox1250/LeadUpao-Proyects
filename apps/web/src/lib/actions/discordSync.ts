@@ -88,3 +88,36 @@ export async function cerrarHiloDeTarea(
     return { ok: false, aviso: 'No se pudo contactar al bot de Discord.' }
   }
 }
+
+// ─── Código de recuperación por mensaje directo ─────────────────────────
+//
+// El endpoint del bot es estrecho a propósito: recibe un id y un código, y el
+// bot compone el mensaje. No acepta texto libre, para que un fallo en la web
+// no se convierta en un canal para escribir a cualquiera en nombre de LEAD.
+export async function enviarCodigoRecuperacion(
+  discordId: string,
+  codigo: string,
+  nombre: string,
+  minutos: number
+): Promise<{ ok: boolean; aviso?: string }> {
+  const botUrl = process.env.DISCORD_BOT_URL
+  const syncToken = process.env.DISCORD_SYNC_TOKEN
+
+  if (!botUrl || !syncToken) {
+    return { ok: false, aviso: 'El enlace con el bot no está configurado en el servidor.' }
+  }
+
+  try {
+    const res = await fetch(`${botUrl}/api/codigo-recuperacion`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Sync-Token': syncToken },
+      body: JSON.stringify({ discord_id: discordId, codigo, nombre, minutos }),
+      // Render duerme los servicios gratuitos; despertar tarda.
+      signal: AbortSignal.timeout(15_000),
+    })
+    if (!res.ok) return { ok: false, aviso: `El bot respondió HTTP ${res.status}.` }
+    return { ok: true }
+  } catch {
+    return { ok: false, aviso: 'No se pudo contactar al bot de Discord.' }
+  }
+}
