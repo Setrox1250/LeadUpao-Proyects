@@ -13,6 +13,7 @@ import { obtenerLogsAuditoria } from '@/lib/actions/auditoria'
 import { obtenerRoles } from '@/lib/actions/roles'
 import { obtenerPilares } from '@/lib/actions/pilares'
 import { obtenerRedesSociales } from '@/lib/actions/redesSociales'
+import { SIN_AREA } from '@/lib/constants'
 import type { PilarStat, Miembro, LogAuditoria, Rol, Pilar, RedSocial }  from '@/types'
 
 export const metadata = { title: 'Dashboard – LEAD UPAO Admin' }
@@ -89,7 +90,10 @@ export default async function AdminPage({
     ;(allTareas ?? [])
       .filter(t => t.estado === 'COMPLETADO')
       .forEach(t => {
-        completadasMap[t.pilar] = (completadasMap[t.pilar] ?? 0) + 1
+        // `pilar` admite NULL (tareas del foro general). Sin este ?? la
+        // gráfica dibujaba una barra rotulada "null".
+        const clave = t.pilar ?? SIN_AREA
+        completadasMap[clave] = (completadasMap[clave] ?? 0) + 1
       })
     pilaresStat = Object.entries(completadasMap)
       .map(([pilar, completadas]) => ({ pilar, completadas }))
@@ -115,15 +119,25 @@ export default async function AdminPage({
   // Tareas (Tablero)
   let tareas: any[] | null = null
   const userPilar = pilarPropio
-  const defaultPilar = userPilar || pilares[0]?.nombre || ''
 
   if (activeTab === 'tareas') {
-    const tareasQuery = supabase.from('tareas').select('*')
-    const { data } = isAdmin
-      ? await tareasQuery.order('created_at', { ascending: false })
-      : await tareasQuery
-          .eq('pilar', userPilar)
-          .order('created_at', { ascending: false })
+    // La Directiva ve todas las áreas. El resto ve la suya Y las tareas
+    // generales (`pilar is null`), que viven en el foro general y son de
+    // todos: el `.eq('pilar', ...)` anterior las descartaba siempre, así que
+    // en la web no existían.
+    //
+    // Es el mismo criterio que aplica la política RLS de la migración 0010.
+    // Se repite aquí a propósito: si la política se cayera, la consulta no
+    // debería empezar a devolver de golpe las áreas ajenas.
+    const base = supabase.from('tareas').select('*')
+    const filtrada = isAdmin
+      ? base
+      : userPilar
+        // Comillas dobles porque los nombres llevan tildes y espacios.
+        ? base.or(`pilar.is.null,pilar.eq."${userPilar}"`)
+        : base.is('pilar', null)
+
+    const { data } = await filtrada.order('created_at', { ascending: false })
     tareas = data
   }
 
@@ -203,11 +217,11 @@ export default async function AdminPage({
           </div>
           <TasksBoard
             initialTasks={tareas ?? []}
-            userPilar={defaultPilar}
             isDirectiva={isAdmin}
             isStaff={isStaff}
             pilarPropio={pilarPropio}
             pilares={pilares}
+            guildId={process.env.DISCORD_GUILD_ID ?? null}
           />
         </section>
       )}

@@ -2,7 +2,8 @@
 
 import { useState } from 'react'
 import { crearTarea }                  from '@/lib/actions/tareas'
-import { ETIQUETAS_TAREA, ETIQUETA_COLORS } from '@/lib/constants'
+import { ETIQUETAS_TAREA, ETIQUETA_COLORS, SIN_AREA } from '@/lib/constants'
+import { esFechaValida } from '@/lib/fechas'
 import Modal from '@/components/ui/Modal'
 import { FormInput, FormSelect, FormTextarea, FormActions } from '@/components/ui/FormField'
 import { useToast } from '@/components/ui/Toast'
@@ -18,7 +19,11 @@ type Props = {
 
 export default function CreateTaskModal({ onClose, onSuccess, defaultPilar, canChangePilar, pilares }: Props) {
   const { showToast } = useToast()
-  const [form, setForm] = useState({ titulo: '', descripcion: '', pilar: defaultPilar })
+  // `pilar: ''` significa tarea general (sin área): va al foro general de
+  // Discord y la ve todo el mundo. Se guarda como NULL.
+  const [form, setForm] = useState({
+    titulo: '', descripcion: '', pilar: defaultPilar, fecha_vencimiento: '',
+  })
   const [etiquetas, setEtiquetas] = useState<string[]>([])
   const [loading, setLoading]     = useState(false)
 
@@ -35,6 +40,9 @@ export default function CreateTaskModal({ onClose, onSuccess, defaultPilar, canC
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!form.titulo.trim()) { showToast('error', 'El título es obligatorio.'); return }
+    if (form.fecha_vencimiento && !esFechaValida(form.fecha_vencimiento)) {
+      showToast('error', 'La fecha de entrega no es válida.'); return
+    }
 
     setLoading(true)
 
@@ -42,8 +50,9 @@ export default function CreateTaskModal({ onClose, onSuccess, defaultPilar, canC
       const { data, error: err } = await crearTarea({
         titulo:      form.titulo,
         descripcion: form.descripcion,
-        pilar:       form.pilar,
+        pilar:       form.pilar || null,
         etiquetas,
+        fecha_vencimiento: form.fecha_vencimiento || null,
       })
 
       if (err || !data) {
@@ -89,7 +98,8 @@ export default function CreateTaskModal({ onClose, onSuccess, defaultPilar, canC
         />
 
         {canChangePilar ? (
-          <FormSelect label="Pilar Asociado" name="pilar" value={form.pilar} onChange={handleChange} required>
+          <FormSelect label="Pilar Asociado" name="pilar" value={form.pilar} onChange={handleChange}>
+            <option value="">{SIN_AREA} (sin área — foro general)</option>
             {pilares.map(p => (
               <option key={p.id} value={p.nombre}>{p.nombre}</option>
             ))}
@@ -101,10 +111,19 @@ export default function CreateTaskModal({ onClose, onSuccess, defaultPilar, canC
               <svg className="w-3.5 h-3.5 text-gray-400 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m0 0v2m0-2h2m-2 0H10m2-6a2 2 0 100-4 2 2 0 000 4z" />
               </svg>
-              {form.pilar}
+              {form.pilar || `${SIN_AREA} (sin área)`}
             </div>
           </div>
         )}
+
+        <FormInput
+          label={<>Fecha de entrega <span className="font-normal text-gray-400">(opcional)</span></>}
+          type="date"
+          name="fecha_vencimiento"
+          value={form.fecha_vencimiento}
+          onChange={handleChange}
+          hint="Se usa para ordenar el tablero y para avisar de tareas vencidas."
+        />
 
         {/* Etiquetas */}
         <div>
