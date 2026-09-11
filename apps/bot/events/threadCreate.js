@@ -2,6 +2,36 @@ const { Events } = require('discord.js');
 const supabase = require('../database');
 const { pilarDeForo } = require('../services/foros');
 
+// `tareas.descripcion` es texto libre, pero 500 es lo que admite el formulario
+// de la web y lo que cabe leer de un vistazo en una tarjeta del tablero.
+const MAX_DESCRIPCION = 500;
+
+/**
+ * Descripción de una tarea nacida en el foro: el primer mensaje del hilo.
+ *
+ * Antes se guardaba la constante 'Tarea creada automáticamente desde el foro',
+ * así que en la web todas esas tareas salían con el mismo texto y lo que la
+ * persona escribió al abrir el hilo no llegaba nunca. En un foro de Discord el
+ * mensaje inicial ES la descripción.
+ *
+ * Devuelve null si no se puede obtener: un hilo sin mensaje inicial es posible
+ * (borrado, o el bot sin permiso de leer el historial), y una tarea sin
+ * descripción es mejor que una tarea perdida.
+ */
+async function descripcionDelHilo(thread) {
+    try {
+        const inicial = await thread.fetchStarterMessage();
+        const texto = inicial?.content?.trim();
+        if (!texto) return null;
+        return texto.length > MAX_DESCRIPCION
+            ? `${texto.slice(0, MAX_DESCRIPCION - 1)}…`
+            : texto;
+    } catch (err) {
+        console.warn(`[threadCreate] No se pudo leer el mensaje inicial de "${thread.name}": ${err.message}`);
+        return null;
+    }
+}
+
 module.exports = {
     name: Events.ThreadCreate, // 'threadCreate'
     once: false,
@@ -29,12 +59,14 @@ module.exports = {
         const { gestionado, pilar } = await pilarDeForo(thread.parentId);
         if (!gestionado) return;
 
+        const descripcion = await descripcionDelHilo(thread);
+
         try {
             const { error } = await supabase
                 .from('tareas')
                 .insert({
                     titulo:          thread.name,
-                    descripcion:     'Tarea creada automáticamente desde el foro.',
+                    descripcion,
                     id_discord_hilo: thread.id,
                     autor_id:        thread.ownerId,
                     pilar,
