@@ -64,16 +64,31 @@ manda al bot por `POST /api/tarea-cerrada`. Ver `docs/discord-tareas.md`.
   catálogo del sistema, sin tocar tablas, tardaban 11-14 segundos. No era el
   esquema, era la instancia sin CPU.
 
-## Consecuencia de permisos que hay que decidir
+## Decidido: el miembro raso usa la web, no el foro
 
 Editar las etiquetas de un post ajeno en Discord exige `ManageThreads`, que
 está en los presets `staff` y `admin` pero **no en `member`**. Como los hilos
-de las tareas creadas desde la web pertenecen al bot, **un miembro raso no
-puede moverlas de columna desde el foro**. Sí puede con las que abra él mismo.
-O se le concede el permiso en los foros de tareas, o se asume que el camino de
-vuelta es para líderes.
+de las tareas creadas desde la web pertenecen al bot, un miembro raso no puede
+moverlas de columna desde el foro.
+
+**No se le concede el permiso.** Marca la tarea desde el panel web, que ya lo
+permite sin ningún cambio: la pestaña Tareas no está restringida, y
+`puedeEditarTarea` deja mover cualquier tarea cuyo `pilar` coincida con el
+suyo. El camino de vuelta desde el foro queda para líderes, que es quien tiene
+`ManageThreads`.
+
+Queda un hueco conocido: las tareas **generales** (`pilar is null`) son de
+staff para arriba también en la web. Si algún día se quiere que un miembro las
+mueva, hay que tocar `puedeEditarTarea`.
 
 ## Lo que sigue abierto
+
+**Lo siguiente es `tareas.responsable_id`**, decidido al cerrar la sesión. Hoy
+una tarea pertenece a un área y no a una persona, y con diez personas eso pesa
+más que cualquier otra cosa de esta lista. Es columna nueva, no un renombrado:
+`autor_id` es texto sin clave foránea y significa otra cosa —quién la creó—,
+así que ambas conviven. Desbloquea `/mis-tareas`, los recordatorios dirigidos a
+una persona en vez de a un canal, y la mitad del traspaso de responsabilidades.
 
 - **Recordatorios de vencimiento.** Necesita una columna de idempotencia
   (`tareas.recordatorio_enviado_en`) y decidir dónde se avisa. Ojo con que el
