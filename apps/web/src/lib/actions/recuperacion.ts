@@ -55,11 +55,20 @@ export async function solicitarRecuperacion(
   }
 
   const admin = createAdminClient()
-  const { data: miembro } = await admin
+  const { data: miembro, error: errorConsulta } = await admin
     .from('miembros')
     .select('id, nombre_completo, discord_id, estado, recuperacion_expira_en')
     .eq('codigo_verificacion', codigoMiembro)
     .maybeSingle()
+
+  // Si la consulta no se puede hacer —clave de servicio caducada o mal puesta
+  // en el entorno— el resultado es `null`, indistinguible de "ese código no
+  // existe". Callarlo aquí convertiría una configuración rota en una pantalla
+  // que promete un mensaje que nunca va a llegar.
+  if (errorConsulta) {
+    console.error('[recuperacion] La consulta a `miembros` falló:', errorConsulta.message)
+    return { mensaje: '', error: 'Hay un problema de configuración en el servidor, no con tu código. Avisa al área de TI.' }
+  }
 
   const estadoValido = miembro?.estado === 'APROBADO_ADMIN' || miembro?.estado === 'VERIFICADO'
 
@@ -133,11 +142,16 @@ export async function restablecerConCodigo(
   if (errorContrasena) return { error: errorContrasena }
 
   const admin = createAdminClient()
-  const { data: miembro } = await admin
+  const { data: miembro, error: errorConsulta } = await admin
     .from('miembros')
     .select('id, nombre_completo, recuperacion_hash, recuperacion_expira_en, recuperacion_intentos')
     .eq('codigo_verificacion', codigoMiembro)
     .maybeSingle()
+
+  if (errorConsulta) {
+    console.error('[recuperacion] La consulta a `miembros` falló:', errorConsulta.message)
+    return { error: 'Hay un problema de configuración en el servidor, no con tu código. Avisa al área de TI.' }
+  }
 
   const vigente = Boolean(
     miembro?.recuperacion_hash &&
