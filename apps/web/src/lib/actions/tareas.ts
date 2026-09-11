@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { isAdmin, isStaff } from '@/lib/auth'
 import { getMiembroActual } from './shared'
 import { registrarAuditoria } from './auditoria'
+import { cerrarHiloDeTarea } from './discordSync'
 import { esFechaValida } from '@/lib/fechas'
 import type { Tarea, EstadoTarea } from '@/types'
 
@@ -138,11 +139,20 @@ export async function actualizarEstadoTarea(
 
 // ─── Eliminar tarea ─────────────────────────────────────────────────────
 // Ver `puedeEliminarTarea`.
-export async function eliminarTarea(taskId: string): Promise<{ success?: true; error?: string }> {
+export async function eliminarTarea(
+  taskId: string
+): Promise<{ success?: true; error?: string; aviso?: string }> {
   const perfil = await getMiembroActual()
   const admin = createAdminClient()
 
-  const { data: tarea } = await admin.from('tareas').select('pilar, titulo').eq('id', taskId).maybeSingle()
+  // Se lee `id_discord_hilo` ANTES de borrar. Es el dato que el bot no puede
+  // conseguir por su cuenta: Realtime recorta el registro anterior de los
+  // DELETE en tablas con RLS (ver cerrarHiloDeTarea).
+  const { data: tarea } = await admin
+    .from('tareas')
+    .select('pilar, titulo, id_discord_hilo')
+    .eq('id', taskId)
+    .maybeSingle()
   if (!tarea) return { error: 'La tarea no existe.' }
 
   if (!puedeEliminarTarea(perfil, tarea.pilar)) {
@@ -151,6 +161,18 @@ export async function eliminarTarea(taskId: string): Promise<{ success?: true; e
 
   const { error } = await admin.from('tareas').delete().eq('id', taskId)
   if (error) return { error: 'No se pudo eliminar la tarea.' }
+
+  // Después del borrado, no antes: si el borrado fallara, habríamos cerrado el
+  // hilo de una tarea que sigue viva. El id ya está en memoria, así que
+  // perderlo de la base no importa.
+  let aviso: string | undefined
+  if (tarea.id_discord_hilo) {
+    const cierre = await cerrarHiloDeTarea(tarea.id_discord_hilo)
+    if (!cierre.ok) {
+      aviso = `Tarea eliminada, pero su hilo de Discord sigue abierto: ${cierre.aviso}`
+      console.warn(`[eliminarTarea] ${aviso}`)
+    }
+  }
 
   await registrarAuditoria({
     actorId:     perfil.id,
@@ -161,7 +183,7 @@ export async function eliminarTarea(taskId: string): Promise<{ success?: true; e
     detalles:    { titulo: tarea.titulo, pilar: tarea.pilar },
   })
 
-  return { success: true }
+  return { success: true, aviso }
 }
 
 // ─── Cambiar la fecha de entrega ────────────────────────────────────────

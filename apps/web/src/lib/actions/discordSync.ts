@@ -46,3 +46,45 @@ export async function sincronizarCatalogosDiscord(): Promise<{ success?: true; e
 
   return { success: true }
 }
+
+// ─── Cerrar el hilo de una tarea eliminada ──────────────────────────────
+//
+// Por qué la web se lo pide al bot en vez de que el bot lo deduzca solo:
+// Supabase Realtime RECORTA el registro anterior de los eventos DELETE cuando
+// la tabla tiene RLS activo. Manda la clave primaria y nada más, porque no
+// puede evaluar la política sobre una fila que ya no existe — y da igual lo
+// que diga `relreplident`: con la identidad en `full`, los UPDATE llegan
+// completos y los DELETE siguen llegando pelados. Medido en producción el
+// 2026-09-11.
+//
+// Sin esto el hilo se quedaba abierto en Discord, dando a entender que la
+// tarea seguía viva. Y fallaba en silencio, que es lo peor de todo.
+//
+// Es "mejor esfuerzo" a propósito: la tarea ya está borrada cuando se llama, y
+// que el bot esté dormido en Render no puede deshacer un borrado. Devuelve un
+// aviso para poder contarlo, no un error.
+export async function cerrarHiloDeTarea(
+  idDiscordHilo: string
+): Promise<{ ok: true } | { ok: false; aviso: string }> {
+  const botUrl = process.env.DISCORD_BOT_URL
+  const syncToken = process.env.DISCORD_SYNC_TOKEN
+
+  if (!botUrl || !syncToken) {
+    return { ok: false, aviso: 'El enlace con el bot no está configurado en el servidor.' }
+  }
+
+  try {
+    const res = await fetch(`${botUrl}/api/tarea-cerrada`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-Sync-Token': syncToken },
+      body: JSON.stringify({ id_discord_hilo: idDiscordHilo }),
+      // Render duerme los servicios gratuitos: despertar tarda. Sin tope, el
+      // borrado se quedaría colgado esperando a un bot dormido.
+      signal: AbortSignal.timeout(10_000),
+    })
+    if (!res.ok) return { ok: false, aviso: `El bot respondió HTTP ${res.status}.` }
+    return { ok: true }
+  } catch {
+    return { ok: false, aviso: 'No se pudo contactar al bot de Discord.' }
+  }
+}

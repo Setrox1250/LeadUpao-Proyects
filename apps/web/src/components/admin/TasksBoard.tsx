@@ -101,8 +101,12 @@ export default function TasksBoard({
   }
 
   const handleDelete = async (taskId: string) => {
-    const { error } = await eliminarTarea(taskId)
+    const { error, aviso } = await eliminarTarea(taskId)
     if (error) showToast('error', error)
+    // La tarea sí se borró, pero su hilo de Discord se quedó abierto. No es un
+    // error —no hay nada que reintentar por aquí— pero callarlo dejaría a
+    // alguien creyendo que el hilo se cerró solo.
+    else if (aviso) showToast('error', aviso)
     // El DELETE se refleja automáticamente vía Realtime
   }
 

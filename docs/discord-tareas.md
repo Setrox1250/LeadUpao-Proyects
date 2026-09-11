@@ -139,6 +139,39 @@ que **la función de tareas estaba rota en las dos direcciones**:
 La migración `0008` añade `descripcion`, `pilar`, `created_at` y `updated_at`,
 fija el `check` de estado y activa `REPLICA IDENTITY FULL`.
 
+## El borrado no pasa por Realtime
+
+Medido en producción el 2026-09-11: **Supabase Realtime recorta el registro
+anterior de los eventos `DELETE` cuando la tabla tiene RLS activo.** Manda solo
+la clave primaria, porque no puede evaluar la política sobre una fila que ya no
+existe. Da igual `relreplident`: con la identidad en `full`, los `UPDATE`
+llegan completos y los `DELETE` siguen llegando pelados.
+
+El log lo enseña en dos líneas del mismo evento: `payload.old.id` vale 15 y
+`payload.old.id_discord_hilo` es `undefined`.
+
+Eso deja al bot sin saber qué hilo cerrar, y fallaba en silencio: el hilo se
+quedaba abierto dando a entender que la tarea seguía viva. No hay migración que
+lo arregle; desactivar RLS en `tareas` sería volver al incidente P0.
+
+Así que el borrado es la única parte del circuito que **no** viaja por
+Realtime:
+
+```text
+web: eliminarTarea()
+  1. lee id_discord_hilo          ← el bot no puede conseguirlo después
+  2. borra la fila
+  3. POST /api/tarea-cerrada al bot con ese id
+```
+
+El aviso va **después** del borrado: si el borrado fallara, habríamos cerrado
+el hilo de una tarea viva. El id ya está en memoria, así que perderlo de la
+base no importa.
+
+Es de mejor esfuerzo. Si el bot está dormido en Render, la tarea queda borrada
+igual y la web lo dice: «su hilo de Discord sigue abierto». Un borrado no se
+deshace porque un servicio secundario no conteste.
+
 ## Estado y fecha de entrega
 
 El estado viaja en las dos direcciones:

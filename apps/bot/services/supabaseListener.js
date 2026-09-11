@@ -342,27 +342,56 @@ async function aplicarEstado(thread, forumChannel, estado) {
     console.log(`[SupabaseListener] Hilo "${thread.name}" → ${estado}${efecto.archivar ? ' y archivado' : ''}.`);
 }
 
-async function handleTareaDelete(client, payload) {
-    const tareaEliminada = payload.old;
-    const threadId       = tareaEliminada?.id_discord_hilo;
+/**
+ * Cierra el hilo de una tarea borrada: avisa, bloquea y archiva.
+ *
+ * Se invoca desde el endpoint `/api/tarea-cerrada`, no desde Realtime. El
+ * motivo está medido, no supuesto:
+ *
+ *   Supabase Realtime RECORTA el registro anterior de los eventos DELETE
+ *   cuando la tabla tiene RLS activo. Manda solo la clave primaria, porque no
+ *   puede evaluar la política sobre una fila que ya no existe. Da igual lo que
+ *   diga `relreplident`: con la identidad en `full`, los UPDATE llegan
+ *   completos y los DELETE siguen llegando pelados.
+ *
+ *   Verificado en producción el 2026-09-11. El log lo enseña en dos líneas
+ *   consecutivas: `payload.old.id` vale 15 y `payload.old.id_discord_hilo` es
+ *   undefined, en el mismo evento.
+ *
+ * No hay migración que lo arregle. Las salidas eran desactivar RLS en `tareas`
+ * —volver al incidente P0— o dejar de depender del evento. Esto es lo segundo:
+ * la Server Action tiene el `id_discord_hilo` en la mano antes de borrar, así
+ * que lo dice ella.
+ */
+async function cerrarHiloDeTareaEliminada(client, threadId, contexto = 'tarea eliminada') {
+    const thread = await fetchThread(client, threadId, contexto);
+    if (!thread) return { ok: false, motivo: 'hilo no encontrado' };
 
-    if (!threadId) {
-        console.log(
-            `[SupabaseListener] DELETE: tarea ID=${tareaEliminada?.id} no tenía hilo Discord ` +
-            '(o REPLICA IDENTITY FULL no está activo en la tabla tareas).'
-        );
-        return;
+    // Si ya está bloqueado, esto ya se hizo: el aviso puede reintentarse y no
+    // queremos dos mensajes ni dos archivados.
+    if (thread.locked) {
+        console.log(`[SupabaseListener] El hilo "${thread.name}" ya estaba cerrado.`);
+        return { ok: true, motivo: 'ya estaba cerrado' };
     }
-
-    const thread = await fetchThread(client, threadId, `DELETE tarea ID=${tareaEliminada?.id}`);
-    if (!thread) return;
 
     await asegurarDesarchivado(thread);
     await thread.send('🚫 Esta tarea fue eliminada desde el panel de control web.');
     await thread.setLocked(true);
     await thread.setArchived(true);
 
-    console.log(`[SupabaseListener] Hilo "${thread.name}" bloqueado y archivado por DELETE en BD.`);
+    console.log(`[SupabaseListener] Hilo "${thread.name}" bloqueado y archivado (${contexto}).`);
+    return { ok: true };
+}
+
+async function handleTareaDelete(client, payload) {
+    // Aquí ya no se cierra nada: ver cerrarHiloDeTareaEliminada(). Este handler
+    // se queda solo para dejar constancia en el log, porque el evento sí llega
+    // y su ausencia sería más confusa que su presencia.
+    console.log(
+        `[SupabaseListener] DELETE de tarea ID=${payload.old?.id}. ` +
+        'El cierre del hilo lo pide la web por /api/tarea-cerrada; Realtime no ' +
+        'trae el id del hilo en los DELETE de tablas con RLS.'
+    );
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -542,7 +571,11 @@ function startSupabaseListener(client) {
             { event: '*', schema: 'public', table: 'tareas' },
             async (payload) => {
                 const tipo = payload.eventType;
-                console.log(`[SupabaseListener] Evento ${tipo} recibido → tarea ID=${(payload.new ?? payload.old)?.id}`);
+                // En un DELETE, supabase-js pone `new` a {} (no a null), así
+                // que `new ?? old` nunca cae al lado bueno y el log decía
+                // siempre "ID=undefined".
+                const fila = payload.new?.id != null ? payload.new : payload.old;
+                console.log(`[SupabaseListener] Evento ${tipo} recibido → tarea ID=${fila?.id}`);
 
                 try {
                     if (tipo === 'INSERT') await handleTareaInsert(client, payload);
@@ -600,4 +633,4 @@ function startSupabaseListener(client) {
     return channel;
 }
 
-module.exports = { startSupabaseListener, ESTADO_TAG, estadoDeTag, decidirAccion };
+module.exports = { startSupabaseListener, ESTADO_TAG, estadoDeTag, decidirAccion, cerrarHiloDeTareaEliminada };

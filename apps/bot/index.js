@@ -45,6 +45,7 @@ for (const [clave, efecto] of Object.entries(OPCIONALES)) {
 }
 
 const supabase = require('./database');
+const { cerrarHiloDeTareaEliminada } = require('./services/supabaseListener');
 
 // ──────────────────────────────────────────────
 // Cliente de Discord con los intents necesarios
@@ -103,17 +104,56 @@ client.login(process.env.DISCORD_TOKEN);
 // ──────────────────────────────────────────────
 const express = require('express');
 const app = express();
+app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 app.get('/', (req, res) => {
     res.send('🚀 LEAD Bot de Discord está completamente en línea.');
 });
 
+// El secreto compartido con la web. En apps/web se llama DISCORD_SYNC_TOKEN.
+function autorizado(req) {
+    const token = req.headers['authorization'] || req.headers['x-sync-token'];
+    return Boolean(process.env.SYNC_SECRET_TOKEN) && token === process.env.SYNC_SECRET_TOKEN;
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// Cierre del hilo de una tarea eliminada
+//
+// Lo pide la web en vez de deducirlo de Realtime, y no por gusto: Supabase
+// recorta el registro anterior de los eventos DELETE cuando la tabla tiene
+// RLS, así que el bot recibe el borrado sin el `id_discord_hilo` y no sabe
+// qué hilo cerrar. Medido en producción el 2026-09-11.
+//
+// La Server Action sí lo tiene —lo consulta para comprobar permisos—, así que
+// lo manda aquí después de borrar la fila.
+// ──────────────────────────────────────────────────────────────────────────
+app.post('/api/tarea-cerrada', async (req, res) => {
+    if (!autorizado(req)) {
+        return res.status(401).json({ error: 'Unauthorized: Invalid or missing token' });
+    }
+
+    const hiloId = req.body?.id_discord_hilo;
+    if (!hiloId || typeof hiloId !== 'string') {
+        return res.status(400).json({ error: 'Falta id_discord_hilo' });
+    }
+
+    try {
+        const resultado = await cerrarHiloDeTareaEliminada(client, hiloId, 'eliminada desde el panel');
+        if (!resultado.ok) {
+            return res.status(404).json({ error: resultado.motivo });
+        }
+        return res.json({ success: true, ...resultado });
+    } catch (err) {
+        console.error('[API tarea-cerrada] No se pudo cerrar el hilo:', err);
+        return res.status(500).json({ error: 'No se pudo cerrar el hilo', detalles: err.message });
+    }
+});
+
 // Ruta protegida para sincronización masiva de roles y pilares
 app.post('/api/sync-all', async (req, res) => {
     try {
-        const token = req.headers['authorization'] || req.headers['x-sync-token'];
-        if (!process.env.SYNC_SECRET_TOKEN || token !== process.env.SYNC_SECRET_TOKEN) {
+        if (!autorizado(req)) {
             return res.status(401).json({ error: 'Unauthorized: Invalid or missing token' });
         }
 
