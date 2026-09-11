@@ -72,11 +72,16 @@ una persona en vez de a un canal, y la mitad del traspaso de responsabilidades.
 
 ## Pendientes que no son de producto
 
-- **Higiene de credenciales.** La rotación abierta en esta sesión queda hecha
-  al cerrarla. Sigue habiendo deuda heredada —limpieza de un repositorio y
-  retirada de claves antiguas— y **no se detalla aquí**: este repositorio es
-  público, y enumerar qué está expuesto mientras sigue expuesto solo sirve a
-  quien lo busca. La lista vive en el canal privado del equipo, con su orden.
+- **Higiene de credenciales.** Hecho y comprobado el 2026-09-11: las claves de
+  servicio están rotadas y separadas por consumidor (web y bot usan una
+  distinta cada uno), y las claves JWT heredadas están desactivadas —responden
+  `Legacy API keys are disabled`—. Queda **rotar el token del bot de Discord**,
+  que corta servicio mientras se hace: hay un solo token, así que el bot se
+  desconecta hasta que se actualice en Render. Hacerlo sin nadie trabajando.
+
+  Queda también borrar un archivo de depuración en el repositorio `LeadUpao-Web`
+  que contenía una clave heredada. Al desactivarse las heredadas dejó de ser
+  urgente; es limpieza.
 - **Arreglar el arranque del bot** para que un handler que lanza no termine el
   proceso: `index.js` registra los eventos sin `try/catch` ni `.catch()`. No ha
   pasado nunca, pero está a un error de distancia (bitácora, hallazgo 4).
