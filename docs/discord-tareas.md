@@ -92,12 +92,25 @@ Extiende el patrón que ya funciona para roles (`supabaseListener.js:254`,
 |---|---|
 | INSERT | Crea categoría, crea el foro dentro, aplica overwrites, guarda ambos IDs |
 | UPDATE de `nombre` | Renombra categoría y foro |
-| DELETE | **Archiva** el foro y retira los overwrites. No borra nada |
+| DELETE | Retira al rol del área el acceso a su categoría. No borra nada |
 
-La asimetría en DELETE es deliberada. El código actual sí borra el rol de
-Discord al eliminar un pilar, y para un rol eso es aceptable: se recrea en dos
-clics. Un foro con meses de hilos, no — Discord no tiene papelera. El borrado
-de canales queda como acción manual y deliberada dentro de Discord.
+La asimetría en DELETE es deliberada. Un foro de área acumula meses de hilos y
+Discord no tiene papelera, así que el borrado de canales queda como acción
+manual y deliberada dentro de Discord. El bot solo retira el acceso, que se
+revierte volviendo a conceder el permiso.
+
+Tampoco se borra el rol del área. La versión anterior de este documento decía
+que para un rol era aceptable porque «se recrea en dos clics»: no es cierto.
+Recrearlo exige además repartirlo de nuevo entre todos los miembros del área,
+y ese trabajo no lo apunta nadie. Para un **cargo** sí se borra el rol, porque
+de él no cuelga ningún canal con historia.
+
+Y no se «archiva el foro», como decía antes esta tabla: en Discord se archivan
+los hilos, no los canales de foro. La retirada efectiva es por permisos.
+
+Lo que queda huérfano —foro, categoría y rol— se lista en el log del bot, igual
+que hace `scripts/bootstrap-discord-areas.mjs`, para que alguien decida a mano
+después de ver lo que contiene.
 
 ## Tareas sin área
 
@@ -125,6 +138,27 @@ que **la función de tareas estaba rota en las dos direcciones**:
 
 La migración `0008` añade `descripcion`, `pilar`, `created_at` y `updated_at`,
 fija el `check` de estado y activa `REPLICA IDENTITY FULL`.
+
+## Estado y fecha de entrega
+
+El estado viaja en las dos direcciones:
+
+| Origen | Camino |
+|---|---|
+| Panel web | `UPDATE tareas.estado` → Realtime → `supabaseListener` pone la etiqueta y avisa en el hilo |
+| Foro | cambio de etiqueta → `events/threadUpdate.js` → `UPDATE tareas.estado` |
+
+El rebote se corta mirando el mundo, no una marca en memoria: si el hilo ya
+lleva puesta la etiqueta del estado nuevo, el cambio vino del foro y no se
+reenvía. Así sigue funcionando aunque el bot se reinicie entre ambos pasos.
+La decisión vive en `decidirAccion()` y está cubierta por pruebas.
+
+`fecha_vencimiento` aparece en el mensaje inicial del hilo y se anuncia con una
+línea corta cuando cambia. Va en texto plano y no como `<t:unix:D>`: ese
+formato es un instante y Discord lo traduce a la zona de cada quien, que
+desplazaría el día justo como se quiere evitar. Y no va en el nombre del hilo
+porque el nombre es el título de la tarea y viaja en las dos direcciones: un
+sufijo acabaría dentro del título en la base.
 
 ## Estado de la implementación
 

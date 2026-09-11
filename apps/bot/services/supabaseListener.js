@@ -1,6 +1,7 @@
 const { ChannelType, ChannelFlags } = require('discord.js');
 const supabase = require('../database');
 const { foroDeTarea, invalidar: invalidarForos } = require('./foros');
+const { formatearFecha } = require('./fechas');
 
 // ──────────────────────────────────────────────────────────────────────────────
 // Configuración de etiquetas
@@ -13,6 +14,54 @@ const ESTADO_TAG = {
     EN_PROGRESO: 'En Progreso',
     COMPLETADO:  'Completado',
 };
+
+/**
+ * Qué hay que contarle a Discord sobre un UPDATE de `tareas`.
+ *
+ * Pura y exportada para poder probarla: es donde vive el riesgo de rebote, y
+ * un bucle entre el foro y la base no es algo que se quiera descubrir en vivo.
+ *
+ * @param payload            evento de Realtime, con `old` y `new`
+ * @param etiquetasDelHilo   nombres de las etiquetas que el hilo tiene puestas
+ */
+function decidirAccion(payload, etiquetasDelHilo = []) {
+    const antes   = payload.old;
+    const despues = payload.new;
+
+    // `old.estado` es undefined si no hay REPLICA IDENTITY FULL. En ese caso
+    // se deja pasar: mejor un mensaje de más que perder una sincronización.
+    const cambioEstado = antes?.estado === undefined || antes.estado !== despues.estado;
+    const cambioFecha  = antes?.fecha_vencimiento !== undefined
+        && (antes.fecha_vencimiento ?? null) !== (despues.fecha_vencimiento ?? null);
+
+    if (!cambioEstado && !cambioFecha) {
+        return { actuar: false, avisarFecha: false, reenviarEstado: false };
+    }
+
+    // Si el hilo YA lleva la etiqueta del estado nuevo, el cambio vino de allí:
+    // alguien movió la etiqueta en Discord y threadUpdate lo escribió en la
+    // base. Anunciarlo "desde el panel web" sería mentir, y volver a aplicar la
+    // etiqueta dispararía otro threadUpdate.
+    //
+    // Se mira el estado del mundo y no una marca en memoria, así que sigue
+    // funcionando si el bot se reinicia entre un paso y el otro.
+    const yaEtiquetado = etiquetasDelHilo.some(nombre => estadoDeTag(nombre) === despues.estado);
+
+    return {
+        actuar:         true,
+        avisarFecha:    cambioFecha,
+        reenviarEstado: cambioEstado && Boolean(ESTADO_TAG[despues.estado]) && !yaEtiquetado,
+        yaEtiquetado:   cambioEstado && yaEtiquetado,
+    };
+}
+
+/** Estado que representa una etiqueta del foro, o null si no es de estado. */
+function estadoDeTag(nombreTag) {
+    const buscado = nombreTag.toLowerCase();
+    return Object.keys(ESTADO_TAG).find(
+        estado => ESTADO_TAG[estado].toLowerCase() === buscado,
+    ) ?? null;
+}
 
 // Mensaje y archivado por estado. BACKLOG no archiva: es trabajo pendiente.
 const ESTADO_EFECTO = {
@@ -145,9 +194,21 @@ async function handleTareaInsert(client, payload) {
     // Crear el hilo en el foro
     let thread;
     try {
+        // La fecha va en el mensaje inicial y no en el nombre del hilo: el
+        // nombre es el título de la tarea y viaja en las dos direcciones, así
+        // que un sufijo acabaría dentro del título en la base. Y en texto
+        // plano, no con <t:unix:D>, que Discord traduce a la zona de cada
+        // quien y desplazaría el día justo como se quería evitar.
+        const cuerpo = [
+            descripcion || 'Tarea creada desde el panel web de LEAD UPAO.',
+            tarea.fecha_vencimiento
+                ? `\n📅 **Entrega:** ${formatearFecha(tarea.fecha_vencimiento)}`
+                : null,
+        ].filter(Boolean).join('\n');
+
         thread = await forumChannel.threads.create({
             name:         titulo || 'Nueva Tarea',
-            message:      { content: descripcion || 'Tarea creada desde el panel web de LEAD UPAO.' },
+            message:      { content: cuerpo },
             appliedTags:  tagIds,
         });
     } catch (err) {
@@ -201,11 +262,12 @@ async function handleTareaUpdate(client, payload) {
     // FULL (migración 0008). Si algún día dejara de estarlo, `old.estado` sería
     // undefined y el evento pasaría igual: ante la duda, mejor un mensaje de
     // más que perder una sincronización real.
-    const estadoAnterior = payload.old?.estado;
-    if (estadoAnterior !== undefined && estadoAnterior === estado) {
+    // Decisión preliminar sin mirar el hilo: descarta la mayoría de eventos
+    // sin gastar una llamada a la API de Discord.
+    if (!decidirAccion(payload).actuar) {
         console.log(
             `[SupabaseListener] UPDATE en tarea ID=${tarea.id} sin cambio de estado ` +
-            `(sigue en ${estado}): sin acción en Discord.`
+            `ni de fecha (sigue en ${estado}): sin acción en Discord.`
         );
         return;
     }
@@ -215,12 +277,6 @@ async function handleTareaUpdate(client, payload) {
         console.warn(
             `[SupabaseListener] UPDATE ignorado en tarea ID=${tarea.id}: no tiene id_discord_hilo.`
         );
-        return;
-    }
-
-    // Solo reaccionar a estados con lógica Discord definida
-    if (!ESTADO_TAG[estado]) {
-        console.log(`[SupabaseListener] Estado "${estado}" en tarea ID=${tarea.id}: sin acción Discord.`);
         return;
     }
 
@@ -235,7 +291,29 @@ async function handleTareaUpdate(client, payload) {
 
     await asegurarDesarchivado(thread);
 
-    await aplicarEstado(thread, forumChannel, estado);
+    // Ahora sí, con las etiquetas que el hilo lleva puestas.
+    const etiquetasDelHilo = thread.appliedTags
+        .map(id => forumChannel.availableTags.find(t => t.id === id)?.name)
+        .filter(Boolean);
+
+    const accion = decidirAccion(payload, etiquetasDelHilo);
+
+    if (accion.avisarFecha) {
+        await thread.send(
+            tarea.fecha_vencimiento
+                ? `📅 La entrega de esta tarea pasó al **${formatearFecha(tarea.fecha_vencimiento)}**.`
+                : '📅 Esta tarea se quedó sin fecha de entrega.'
+        );
+    }
+
+    if (accion.reenviarEstado) {
+        await aplicarEstado(thread, forumChannel, estado);
+    } else if (accion.yaEtiquetado) {
+        console.log(
+            `[SupabaseListener] Tarea ID=${tarea.id} ya está etiquetada como ${estado} ` +
+            'en Discord: el cambio vino del foro, no se reenvía.'
+        );
+    }
 }
 
 /**
@@ -353,6 +431,19 @@ async function handleRolePilarUpdate(client, payload, table) {
 }
 
 async function handleRolePilarDelete(client, payload, table) {
+    // Eliminar un ÁREA no borra nada en Discord: archiva su foro y le retira
+    // el acceso. Es la regla de docs/discord-tareas.md, que el código nunca
+    // llegó a cumplir.
+    //
+    // Importa porque un foro de área acumula meses de hilos y Discord no tiene
+    // papelera. Y borrar el rol es peor de lo que parece: no se "recrea en dos
+    // clics", hay que volver a repartirlo entre todos los miembros del área,
+    // que es el trabajo que nadie apunta en ningún sitio.
+    //
+    // Para un CARGO sí se borra el rol: no cuelga de él ningún canal con
+    // historia, y el panel puede recrearlo.
+    if (table === 'pilares') return archivarAreaEliminada(client, payload.old);
+
     const oldRecord = payload.old;
     if (!oldRecord.discord_role_id) return;
 
@@ -362,7 +453,7 @@ async function handleRolePilarDelete(client, payload, table) {
     try {
         const guild = await client.guilds.fetch(guildId);
         const role = await guild.roles.fetch(oldRecord.discord_role_id);
-        
+
         if (role) {
             await role.delete(`Eliminado desde Supabase tabla ${table}`);
             console.log(`[SupabaseListener] Rol eliminado en Discord: ID ${oldRecord.discord_role_id}`);
@@ -371,6 +462,69 @@ async function handleRolePilarDelete(client, payload, table) {
         }
     } catch (err) {
         console.error(`[SupabaseListener] Error al eliminar rol para ${table} (ID ${oldRecord.discord_role_id}):`, err);
+    }
+}
+
+/**
+ * Retira un área de Discord sin destruir nada.
+ *
+ * Retirar = quitarle al rol del área su permiso de ver la categoría. Eso
+ * esconde de golpe el foro de tareas y cualquier otro canal del área, y se
+ * revierte volviendo a conceder el permiso.
+ *
+ * No se "archiva el foro" como decía docs/discord-tareas.md porque en Discord
+ * eso no existe: se archivan los hilos, no los canales de foro. La retirada
+ * efectiva es por permisos, y así queda escrito en el documento.
+ *
+ * NO se borra el rol, NI la categoría, NI el foro. Lo que queda huérfano se
+ * lista en el log, igual que hace scripts/bootstrap-discord-areas.mjs: el
+ * borrado definitivo es una decisión humana que se toma dentro de Discord,
+ * mirando lo que hay en los hilos.
+ */
+async function archivarAreaEliminada(client, area) {
+    const guildId = process.env.GUILD_ID;
+    if (!guildId) return console.error('[SupabaseListener] GUILD_ID no definido en .env');
+
+    // El mapa área → foro está cacheado y acaba de quedar obsoleto.
+    invalidarForos();
+
+    const nombre = area?.nombre ?? '(sin nombre)';
+    const pendientes = [];
+
+    if (area?.discord_forum_id) {
+        try {
+            const foro = await client.channels.fetch(area.discord_forum_id);
+            if (foro) pendientes.push(`foro #${foro.name} (${foro.id}), con todos sus hilos`);
+        } catch (err) {
+            console.warn(`[SupabaseListener] No se pudo leer el foro de "${nombre}": ${err.message}`);
+        }
+    }
+
+    // Retirar el acceso del rol del área a su categoría.
+    if (area?.discord_category_id && area?.discord_role_id) {
+        try {
+            const categoria = await client.channels.fetch(area.discord_category_id);
+            await categoria.permissionOverwrites.delete(
+                area.discord_role_id,
+                `Área "${nombre}" eliminada desde el panel web`,
+            );
+            console.log(`[SupabaseListener] Retirado el acceso del rol del área "${nombre}" a su categoría.`);
+            pendientes.push(`categoría ${categoria.name} (${categoria.id})`);
+        } catch (err) {
+            console.warn(`[SupabaseListener] No se pudieron retirar los permisos de "${nombre}": ${err.message}`);
+        }
+    }
+
+    if (area?.discord_role_id) {
+        pendientes.push(`rol ${area.discord_role_id}`);
+    }
+
+    if (pendientes.length) {
+        console.warn(
+            `[SupabaseListener] Área "${nombre}" eliminada de la base. En Discord NO se ha borrado nada.\n` +
+            pendientes.map(p => `    · ${p}`).join('\n') + '\n' +
+            '    Bórralos a mano si procede, después de revisar lo que contienen.'
+        );
     }
 }
 
@@ -446,4 +600,4 @@ function startSupabaseListener(client) {
     return channel;
 }
 
-module.exports = { startSupabaseListener };
+module.exports = { startSupabaseListener, ESTADO_TAG, estadoDeTag, decidirAccion };

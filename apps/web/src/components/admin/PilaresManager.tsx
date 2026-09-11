@@ -31,25 +31,38 @@ function DeletePilarButton({ pilar, onDeleted }: { pilar: Pilar; onDeleted: () =
     onDeleted()
   }
 
+  // El «¿Eliminar? Sí/No» de antes no decía nada de Discord, y eliminar un
+  // área allí retira a su equipo el acceso a su categoría entera: foro de
+  // tareas, chat y voz. Un botón cuya consecuencia está en otro producto tiene
+  // que contarla antes, no después.
   if (confirming) {
     return (
-      <span className="inline-flex items-center gap-1">
-        <span className="text-[10px] text-red-600 font-medium mr-1">¿Eliminar?</span>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="text-[10px] bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded-md font-medium transition-colors disabled:opacity-60"
-        >
-          {deleting ? '...' : 'Sí'}
-        </button>
-        <button
-          onClick={() => setConfirming(false)}
-          disabled={deleting}
-          className="text-[10px] border border-gray-300 text-gray-600 hover:bg-gray-50 px-2 py-0.5 rounded-md font-medium transition-colors disabled:opacity-60"
-        >
-          No
-        </button>
-      </span>
+      <div className="mt-2 border border-red-200 bg-red-50 rounded-lg p-2.5 max-w-sm text-left">
+        <p className="text-[11px] font-semibold text-red-700 mb-1">
+          Eliminar «{pilar.nombre}»
+        </p>
+        <ul className="text-[11px] text-red-700/90 leading-relaxed list-disc pl-4 mb-2 space-y-0.5">
+          <li>Su equipo deja de ver la categoría del área en Discord.</li>
+          <li>El foro, sus hilos y el rol <strong>se conservan</strong>: nada se borra allí.</li>
+          <li>Para revertirlo hay que volver a dar el permiso a mano en Discord.</li>
+        </ul>
+        <div className="flex items-center gap-1.5">
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-[10px] bg-red-600 hover:bg-red-700 text-white px-2 py-0.5 rounded-md font-medium transition-colors disabled:opacity-60"
+          >
+            {deleting ? 'Eliminando...' : 'Sí, eliminar el área'}
+          </button>
+          <button
+            onClick={() => setConfirming(false)}
+            disabled={deleting}
+            className="text-[10px] border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 px-2 py-0.5 rounded-md font-medium transition-colors disabled:opacity-60"
+          >
+            Cancelar
+          </button>
+        </div>
+      </div>
     )
   }
 
