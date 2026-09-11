@@ -96,8 +96,44 @@ for (const file of eventFiles) {
 
 // ──────────────────────────────────────────────
 // Inicio de sesión
+//
+// Con `.catch`: un token inválido rechaza esta promesa, y sin capturarla Node
+// termina el proceso volcando una traza de discord.js que no dice qué hacer.
+// En Render eso es un bucle de reinicios y varios minutos de leer stacks para
+// acabar en "el token no vale".
 // ──────────────────────────────────────────────
-client.login(process.env.DISCORD_TOKEN);
+client.login(process.env.DISCORD_TOKEN).catch((err) => {
+    if (err?.code === 'TokenInvalid') {
+        console.error(
+            '\n[DISCORD] El token existe pero Discord lo rechaza.\n\n' +
+            '  Suele ser que se reseteó en el Developer Portal y aquí sigue el anterior.\n' +
+            '  Developer Portal → tu aplicación → Bot → Reset Token, y pega el nuevo en\n' +
+            '  Render → Environment → DISCORD_TOKEN. Un token reseteado no se puede\n' +
+            '  volver a ver: si lo perdiste, resetéalo otra vez.\n'
+        );
+    } else {
+        console.error('\n[DISCORD] No se pudo iniciar sesión:', err?.message ?? err, '\n');
+    }
+    process.exit(1);
+});
+
+// ──────────────────────────────────────────────
+// Red de seguridad para los handlers de eventos
+//
+// `client.on(nombre, (...args) => event.execute(...args))` no captura nada: si
+// un `execute` async lanza, es un rechazo no capturado y Node mata el proceso.
+// Un fallo en un solo evento —un hilo sin permisos, un mensaje que no se puede
+// enviar— tiraba el bot entero y con él toda la sincronización.
+//
+// Se registra y se sigue. Es a propósito: para un bot, quedarse en pie y dejar
+// constancia vale más que caerse limpiamente.
+// ──────────────────────────────────────────────
+process.on('unhandledRejection', (razon) => {
+    console.error('[BOT] Rechazo no capturado (el bot sigue en pie):', razon);
+});
+process.on('uncaughtException', (err) => {
+    console.error('[BOT] Excepción no capturada (el bot sigue en pie):', err);
+});
 
 // ──────────────────────────────────────────────
 // Servidor Express Keep-Alive para Render
